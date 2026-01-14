@@ -1,6 +1,6 @@
 <div align="center">
     <a href="https://github.com/eritho23/icfm">
-        <img src="icfm-blue.svg" alt="icfm" width="100" height="100"></img>
+        <img src="./images/icfm-blue.svg" alt="icfm" width="100" height="100"></img>
     </a>
     <h3></h3>
     <p align="center">A lightweight partially 3d-printed guided rocket.</p>
