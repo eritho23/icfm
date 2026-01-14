@@ -20,5 +20,5 @@ Refer to platformio core [documentation](https://docs.platformio.org/en/latest/c
 ### vim/nvim users
 
 `python pio_lsp.py` to generate necessary files, this will make the lsp work correctly most of the time.
-Inspired by the [nvim-platformio](https://github.com/anurag3301/nvim-platformio.lua.git) project.
+Inspired by the `Pioinit` functionality from the [nvim-platformio](https://github.com/anurag3301/nvim-platformio.lua.git) project.
 
