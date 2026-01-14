@@ -4,7 +4,6 @@
     </a>
     <h3></h3>
     <p align="center">A lightweight partially 3d-printed guided rocket.</p>
-    <br />
 </div>
 
 ## Stack
