@@ -1,6 +1,9 @@
-# ICFM
-
-A lightweight partially 3d-printed guided rocket with four fin-type control surfaces.
+<div align="center">
+    <a href="https://github.com/eritho23/icfm">
+        <img src="icfm-blue.svg" alt="icfm" width="90" height="90"></img>
+    </a>
+    <p align="center" style="margin-block: 1em;">A lightweight partially 3d-printed guided rocket with four fin-type control surfaces.</p>
+</div>
 
 ## Stack
 
