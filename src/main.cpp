@@ -4,10 +4,10 @@
 void setup()
 {
   Serial.begin(115200);
-	servoSetup();
+	servo_setup();
 }
 
 void loop()
 {
-	testServo();
+	test_servo();
 }

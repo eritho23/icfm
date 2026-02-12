@@ -4,10 +4,10 @@
 #include <Arduino.h>
 #include <ESP32Servo.h>
 
-extern int servoPin;
+extern int servo_pin;
 extern Servo servo;
 
-void servoSetup();
-void testServo();
+void servo_setup();
+void test_servo();
 
 #endif
