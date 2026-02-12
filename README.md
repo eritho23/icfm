@@ -21,7 +21,7 @@ Hardware
 
 Refer to platformio core [documentation](https://docs.platformio.org/en/latest/core/index.html) for building, uploading and more with the pio cli.
 
-## Style
+### Style
 
 - Prefer simple c over cpp features
 - snake_case (though libraries might use pascalCase)
