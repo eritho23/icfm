@@ -2,11 +2,11 @@
 #include <stdint.h>
 
 matrix* mat_create(mem_arena* arena, u32 rows, u32 cols) {
-    matrix* mat = PUSH_STRUCT(arena, matrix);
+    matrix* mat = (matrix*)arena_push(arena, sizeof(matrix), false);
 
     mat->rows = rows;
     mat->cols = cols;
-    mat->data = PUSH_ARRAY(arena, f32, (u64)rows * cols);
+    mat->data = (f32*)arena_push(arena, sizeof(f32) * rows * cols, false);
 
     return mat;
 }
