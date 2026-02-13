@@ -1,8 +1,8 @@
 #ifndef MATRIX_UTILS_H
 #define MATRIX_UTILS_H
 
-#include <base.h>
-#include <arena.h>
+#include "base.h"
+#include "arena.h"
 
 typedef struct {
     u32 rows, cols;

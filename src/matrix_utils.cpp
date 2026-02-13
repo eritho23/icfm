@@ -1,5 +1,4 @@
-#include <matrix_utils.h>
-#include <stdint.h>
+#include "matrix_utils.h"
 
 matrix* mat_create(mem_arena* arena, u32 rows, u32 cols) {
     matrix* mat = (matrix*)arena_push(arena, sizeof(matrix), false);

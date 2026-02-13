@@ -26,6 +26,7 @@ Refer to platformio core [documentation](https://docs.platformio.org/en/latest/c
 - Prefer simple c over cpp features
 - snake_case (though libraries might use pascalCase)
 - Use arenas to manage memory, include src/arena.h
+- Header #include statements: use "" for self written headers and <> for others
 
 ### vim/nvim users
 

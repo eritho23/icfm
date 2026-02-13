@@ -1,5 +1,5 @@
-#include <base.h>
-#include <arena.h>
+#include "base.h"
+#include "arena.h"
 #include <esp_heap_caps.h>
 
 static inline u64 align_up(u64 v, u64 a) {
@@ -9,8 +9,7 @@ static inline u64 align_up(u64 v, u64 a) {
 mem_arena* arena_create(u64 size) {
     size = align_up(size, ARENA_ALIGN);
 
-    mem_arena* arena =
-        (mem_arena*)heap_caps_malloc(size, MALLOC_CAP_8BIT);
+    mem_arena* arena = (mem_arena*)heap_caps_malloc(size, MALLOC_CAP_8BIT);
 
     if (!arena) return NULL;
 
