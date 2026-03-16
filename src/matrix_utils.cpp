@@ -1,13 +1,10 @@
 #include "matrix_utils.h"
 
-matrix* mat_create(mem_arena* arena, u32 rows, u32 cols) {
-    matrix* mat = (matrix*)arena_push(arena, sizeof(matrix), false);
-
+void mat_init(matrix* mat, u32 rows, u32 cols, f32* buf) {
     mat->rows = rows;
     mat->cols = cols;
-    mat->data = (f32*)arena_push(arena, sizeof(f32) * rows * cols, false);
-
-    return mat;
+    mat->data = buf;
+    memset(buf, 0, sizeof(f32) * rows * cols);
 }
 
 b32 mat_copy(matrix* dst, matrix* src) {

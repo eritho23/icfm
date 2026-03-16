@@ -1,13 +1,12 @@
 #include <Arduino.h>
+
 #include "servo.h"
 
-void setup()
-{
+void setup() {
   Serial.begin(115200);
 	servo_setup();
 }
 
-void loop()
-{
+void loop() {
 	test_servo();
 }

@@ -2,7 +2,6 @@
 #define MATRIX_UTILS_H
 
 #include "base.h"
-#include "arena.h"
 
 typedef struct {
     u32 rows, cols;
@@ -10,7 +9,8 @@ typedef struct {
     f32* data;
 } matrix;
 
-matrix* mat_create(mem_arena* arena, u32 rows, u32 cols);
+// buf must point to a caller-owned f32[rows * cols] buffer
+void mat_init(matrix* mat, u32 rows, u32 cols, f32* buf);
 b32 mat_copy(matrix* dst, matrix* src);
 void mat_clear(matrix* mat);
 void mat_fill(matrix* mat, f32 x);
