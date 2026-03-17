@@ -31,14 +31,16 @@ typedef enum {
 } meas_index;
 
 
-MAT(x_prior, dim, 1);
+MAT(x_prior, dim, 1); // State variable, 12x1 variable matrix
 MAT(x_posterior, dim, 1);
 
-MAT(Q, dim, dim); // Process noise, 12x12 matrix
-MAT(R, 9, 9); // Measurement noise, 9x9 matrix
+MAT(p_prior, dim, dim); // Error covariance, 12x12 matrix
+MAT(p_posterior, dim, dim);
+
 MAT(F, dim, dim); // State transition, 12x12 matrix
 MAT(H, 9, dim); // State-to-measurement, 12x9 matrix
-MAT(P, dim, dim); // Error covariance, 12x12 matrix
+MAT(R, 9, 9); // Measurement noise, 9x9 matrix
+MAT(Q, dim, dim); // Process noise, 12x12 matrix
 
 
 static void init_H(void) {
@@ -68,7 +70,7 @@ b32 init_kalman_filter(matrix *init_state) {
 	// TODO: Figure out the right values
     mat_diag(&Q, (f32[]){ 0.01f, 0.01f, 0.01f,  0.1f, 0.1f, 0.1f,  1.0f, 1.0f, 1.0f,  0.01f, 0.01f, 0.01f }, dim);
     mat_diag(&R, (f32[]){ 2.0f,  2.0f,  4.0f,   0.1f, 0.1f, 0.1f,  0.01f, 0.01f, 0.05f }, 9);
-    mat_diag(&P, (f32[]){ 1, 1, 1,  1, 1, 1,  1, 1, 1,  1, 1, 1 }, dim);
+    mat_diag(&p_posterior, (f32[]){ 1, 1, 1,  1, 1, 1,  1, 1, 1,  1, 1, 1 }, dim);
     mat_diag(&F, (f32[]){ 1, 1, 1,  1, 1, 1,  1, 1, 1,  1, 1, 1 }, dim);
     init_H();
 
@@ -76,17 +78,31 @@ b32 init_kalman_filter(matrix *init_state) {
     return true;
 }
 
+
+// x_(n+1)|n = F * x_n|n
 b32 prior_estimate(f32 dt) {
     update_F(dt);
     return mat_mul(&x_prior, &F, &x_posterior, true, false, false);
 }
 
+// P_n+1|n = F * P_n|n * F^T + Q
 b32 prior_error_covariance(void) {
     // TODO: F*P*F^T + Q
 
     return true;
 }
 
+// K_n = P_n|n-1 * H^T * (H * P_n|n-1 * H^T + R_n)^(-1)
+f32 kalman_gain(void) {
+	return 0.0;
+}
+
+// x_n|n = x_n|n-1 + K_n * (z_n - H * x_n|n-1)
+b32 posterior_estimate(void) {
+	return true;
+}
+
+// P_n|n = (I - K_n * H) * P_n|n-1 * (I - K_n * H)^T + K_n * R_n * K_n^T
 b32 posterior_error_covariance(void) {
     // TODO: compute with Joseph form
 
