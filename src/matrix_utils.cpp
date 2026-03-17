@@ -1,6 +1,5 @@
 #include "matrix_utils.h"
 
-
 void mat_create(matrix *mat, u32 rows, u32 cols, f32 *buf) {
     mat->rows = rows;
     mat->cols = cols;
