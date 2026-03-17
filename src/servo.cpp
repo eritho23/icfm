@@ -1,5 +1,4 @@
-#include <Arduino.h>
-#include <ESP32Servo.h>
+#include "servo.h"
 
 int servo_pin = 8;
 Servo servo;

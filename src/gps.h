@@ -6,7 +6,7 @@
 #include <SoftwareSerial.h>
 
 extern SFE_UBLOX_GNSS gps;
-extern SoftwareSerial my_serial;
+extern SoftwareSerial soft_serial;
 extern long last_sime;
 
 void gps_setup();
