@@ -36,30 +36,30 @@ void gps_setup() {
 }
 
 void test_gps() {
-  // Query module only every second. Doing it more often will just cause I2C traffic.
-  // The module only responds when a new position is available
-  if (millis() - last_time > 1000)
-  {
-    last_time = millis(); // Update the timer
+	// Query module only every second. Doing it more often will just cause I2C traffic.
+	// The module only responds when a new position is available
+	if (millis() - last_time > 1000)
+	{
+		last_time = millis(); // Update the timer
 
-    long latitude = gps.getLatitude();
-    Serial.print(F("Lat: "));
-    Serial.print(latitude);
+		long latitude = gps.getLatitude();
+		Serial.print(F("Lat: "));
+		Serial.print(latitude);
 
-    long longitude = gps.getLongitude();
-    Serial.print(F(" Long: "));
-    Serial.print(longitude);
-    Serial.print(F(" (degrees * 10^-7)"));
+		long longitude = gps.getLongitude();
+		Serial.print(F(" Long: "));
+		Serial.print(longitude);
+		Serial.print(F(" (degrees * 10^-7)"));
 
-    long altitude = gps.getAltitude();
-    Serial.print(F(" Alt: "));
-    Serial.print(altitude);
-    Serial.print(F(" (mm)"));
+		long altitude = gps.getAltitude();
+		Serial.print(F(" Alt: "));
+		Serial.print(altitude);
+		Serial.print(F(" (mm)"));
 
-    byte SIV = gps.getSIV();
-    Serial.print(F(" SIV: "));
-    Serial.print(SIV);
+		byte SIV = gps.getSIV();
+		Serial.print(F(" SIV: "));
+		Serial.print(SIV);
 
-    Serial.println();
-  }
+		Serial.println();
+	}
 }

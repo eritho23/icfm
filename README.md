@@ -26,6 +26,7 @@ Refer to platformio core [documentation](https://docs.platformio.org/en/latest/c
 - Prefer simple c over cpp features
 - snake_case (though libraries might use pascalCase)
 - Header #include statements: use "" for self written headers and <> for others
+- 4 space indent
 
 ### vim/nvim users
 

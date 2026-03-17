@@ -1,6 +1,6 @@
 #include "matrix_utils.h"
 
-void mat_init(matrix* mat, u32 rows, u32 cols, f32* buf) {
+void mat_create(matrix* mat, u32 rows, u32 cols, f32* buf) {
     mat->rows = rows;
     mat->cols = cols;
     mat->data = buf;
@@ -163,6 +163,20 @@ b32 mat_mul(
         case 0b01: { _mat_mul_nt(out, a, b); } break;
         case 0b10: { _mat_mul_tn(out, a, b); } break;
         case 0b11: { _mat_mul_tt(out, a, b); } break;
+    }
+
+    return true;
+}
+
+b32 mat_transpose(matrix* out, const matrix* a) {
+    if (out->rows != a->cols || out->cols != a->rows) {
+        return false;
+    }
+
+    for (u64 i = 0; i < a->rows; i++) {
+        for (u64 j = 0; j < a->cols; j++) {
+            out->data[i + j * out->cols] = a->data[j + i * a->cols];
+        }
     }
 
     return true;
