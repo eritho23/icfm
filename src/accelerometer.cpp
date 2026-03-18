@@ -43,22 +43,22 @@ b32 mpu_setup(void) {
 	return true;
 }
 
-acc_meas* get_acc_data(void) {
-	mpu.getMotion6(&(acc_data.ax), &(acc_data.ay), &(acc_data.az), &(acc_data.gx), &(acc_data.gy), &(acc_data.gz));
-	return &acc_data;
+acc_meas* get_mpu_data(void) {
+	mpu.getMotion6(&(mpu_data.ax), &(mpu_data.ay), &(mpu_data.az), &(mpu_data.gx), &(mpu_data.gy), &(mpu_data.gz));
+	return &mpu_data;
 }
 
 void mpu_debug(void) {
-	mpu.getMotion6(&(acc_data.ax), &(acc_data.ay), &(acc_data.az), &(acc_data.gx), &(acc_data.gy), &(acc_data.gz));
+	mpu.getMotion6(&(mpu_data.ax), &(mpu_data.ay), &(mpu_data.az), &(mpu_data.gx), &(mpu_data.gy), &(mpu_data.gz));
 
 #ifdef OUTPUT_READABLE_ACCELGYRO
 	Serial.print("a/g:\t");
-	Serial.print(acc_data.ax); Serial.print("\t");
-	Serial.print(acc_data.ay); Serial.print("\t");
-	Serial.print(acc_data.az); Serial.print("\t");
-	Serial.print(acc_data.gx); Serial.print("\t");
-	Serial.print(acc_data.gy); Serial.print("\t");
-	Serial.println(acc_data.gz);
+	Serial.print(mpu_data.ax); Serial.print("\t");
+	Serial.print(mpu_data.ay); Serial.print("\t");
+	Serial.print(mpu_data.az); Serial.print("\t");
+	Serial.print(mpu_data.gx); Serial.print("\t");
+	Serial.print(mpu_data.gy); Serial.print("\t");
+	Serial.println(mpu_data.gz);
 #endif
 
 #ifdef OUTPUT_BINARY_ACCELGYRO
