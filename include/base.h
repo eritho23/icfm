@@ -21,7 +21,4 @@ typedef i32 b32;
 
 typedef float f32;
 
-#define MIN(a, b) (((a) < (b)) ? (a) : (b))
-#define MAX(a, b) (((a) > (b)) ? (a) : (b))
-
 #endif

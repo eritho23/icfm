@@ -10,7 +10,7 @@ typedef struct {
 } matrix;
 
 #define MAT(name, r, c) \
-    f32 name##_data[(r)*(c)]; \
+    f32 name##_data[(int)(r)*(int)(c)]; \
     matrix name = { .rows=(r), .cols=(c), .data=name##_data }
 
 // buf must point to a caller-owned f32[rows * cols] buffer.
