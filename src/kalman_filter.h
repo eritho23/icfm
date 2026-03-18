@@ -31,6 +31,6 @@ matrix* kalman_filter_update(f32 dt);
 matrix* kalman_filter_get_z(void);
 
 void kalman_filter_debug_print_csv_header(void);
-void kalman_filter_debug_print_csv_row( u32 t_ms, i16 ax, i16 ay, i16 az, i16 gx, i16 gy, i16 gz, const matrix *state);
+void kalman_filter_debug_print_csv_row(u32 t_ms, f32 ax, f32 ay, f32 az, f32 roll_meas, f32 pitch_meas, f32 yaw_meas, const matrix *state);
 
 #endif

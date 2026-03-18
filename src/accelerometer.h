@@ -9,19 +9,18 @@
 #include "base.h"
 
 typedef struct {
-	i16 ax; 
-	i16 ay; 
-	i16 az; 
-	i16 gx; 
-	i16 gy; 
-	i16 gz; 
+	f32 ax;
+	f32 ay;
+	f32 az;
+	f32 roll;
+	f32 pitch;
+	f32 yaw;
 } acc_meas;
 
-extern acc_meas mpu_data;
-extern f32 mpu_sample_rate;
+extern f32 mpu_sample_rate_hz;
 
 b32 mpu_setup(void);
 void mpu_debug(void);
-acc_meas* get_mpu_data(void);
+b32 get_mpu_data(acc_meas *out);
 
 #endif

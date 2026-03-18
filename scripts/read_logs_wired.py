@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-import argparse
 import csv
 import datetime as dt
 from collections import deque
@@ -12,12 +11,12 @@ import time
 
 COLUMNS = [
         "t_ms",
-        "ax",
-        "ay",
-        "az",
-        "gx",
-        "gy",
-        "gz",
+        "ax_mps2",
+        "ay_mps2",
+        "az_mps2",
+        "roll_rad",
+        "pitch_rad",
+        "yaw_rad",
         "p_x",
         "p_y",
         "p_z",
@@ -33,31 +32,16 @@ COLUMNS = [
         ]
 
 
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-            description="Capture ESP Kalman CSV stream, log it, and plot live"
-            )
-    parser.add_argument("--port", default="COM9", help="Serial port (default: COM9)")
-    parser.add_argument("--baud", type=int, default=115200, help="Baud rate")
-    parser.add_argument(
-            "--timeout",
-            type=float,
-            default=0.05,
-            help="Serial read timeout in seconds",
-            )
-    parser.add_argument(
-            "--max-points",
-            type=int,
-            default=2000,
-            help="Max plotted samples kept in memory",
-            )
-    parser.add_argument(
-            "--refresh-ms",
-            type=int,
-            default=100,
-            help="Plot refresh interval in milliseconds",
-            )
-    return parser.parse_args()
+SERIAL_PORT = "COM9"
+BAUD_RATE = 115200
+SERIAL_TIMEOUT_SEC = 0.05
+
+MAX_POINTS = 2000
+REFRESH_MS = 100
+PLOT_CHUNK_SEC = 0.25
+MAX_LINES_PER_UPDATE = 300
+
+LOG_DIR = pathlib.Path("logs")
 
 
 def open_serial(port: str, baud: int, timeout: float):
@@ -95,8 +79,6 @@ def parse_data_row(line: str) -> list[float] | None:
 
 
 def main() -> int:
-    args = parse_args()
-
     try:
         import matplotlib.pyplot as plt  # type: ignore
         from matplotlib.animation import FuncAnimation  # type: ignore
@@ -105,29 +87,32 @@ def main() -> int:
         print("Install it with: pip install matplotlib", file=sys.stderr)
         return 2
 
-    ser = open_serial(args.port, args.baud, args.timeout)
-    log_path = create_log_file(pathlib.Path("logs"))
+    ser = open_serial(SERIAL_PORT, BAUD_RATE, SERIAL_TIMEOUT_SEC)
+    log_path = create_log_file(LOG_DIR)
 
-    print(f"Listening on {args.port} @ {args.baud}")
+    print(f"Listening on {SERIAL_PORT} @ {BAUD_RATE}")
     print(f"Logging to {log_path}")
     print("Close the plot window or press Ctrl+C to stop")
 
-    data = {name: deque(maxlen=args.max_points) for name in COLUMNS}
+    data = {name: deque(maxlen=MAX_POINTS) for name in COLUMNS}
     first_t_ms: float | None = None
     header_received = False
+    last_plot_time = time.monotonic()
+    last_flush_time = time.monotonic()
+    y_rescale_counter = 0
 
     fig, axes = plt.subplots(3, 1, figsize=(12, 10), sharex=True)
 
     line_map = {
-            "ax_raw": axes[0].plot([], [], label="ax_raw", alpha=0.75)[0],
-            "ay_raw": axes[0].plot([], [], label="ay_raw", alpha=0.75)[0],
-            "az_raw": axes[0].plot([], [], label="az_raw", alpha=0.75)[0],
+            "ax_meas": axes[0].plot([], [], label="ax_meas", alpha=0.75)[0],
+            "ay_meas": axes[0].plot([], [], label="ay_meas", alpha=0.75)[0],
+            "az_meas": axes[0].plot([], [], label="az_meas", alpha=0.75)[0],
             "a_x_kalman": axes[0].plot([], [], label="a_x_kalman", linewidth=2)[0],
             "a_y_kalman": axes[0].plot([], [], label="a_y_kalman", linewidth=2)[0],
             "a_z_kalman": axes[0].plot([], [], label="a_z_kalman", linewidth=2)[0],
-            "gx_raw": axes[1].plot([], [], label="gx_raw", alpha=0.75)[0],
-            "gy_raw": axes[1].plot([], [], label="gy_raw", alpha=0.75)[0],
-            "gz_raw": axes[1].plot([], [], label="gz_raw", alpha=0.75)[0],
+            "roll_meas": axes[1].plot([], [], label="roll_meas", alpha=0.75)[0],
+            "pitch_meas": axes[1].plot([], [], label="pitch_meas", alpha=0.75)[0],
+            "yaw_meas": axes[1].plot([], [], label="yaw_meas", alpha=0.75)[0],
             "roll_kalman": axes[1].plot([], [], label="roll_kalman", linewidth=2)[0],
             "pitch_kalman": axes[1].plot([], [], label="pitch_kalman", linewidth=2)[0],
             "yaw_kalman": axes[1].plot([], [], label="yaw_kalman", linewidth=2)[0],
@@ -140,12 +125,12 @@ def main() -> int:
             }
 
     axes[0].set_ylabel("Accel")
-    axes[0].set_title("Acceleration: raw vs Kalman")
+    axes[0].set_title("Acceleration (m/s^2): measurement vs Kalman")
     axes[0].grid(True, alpha=0.3)
     axes[0].legend(loc="upper right", ncol=2)
 
-    axes[1].set_ylabel("Gyro / Angle")
-    axes[1].set_title("Gyro raw and attitude states")
+    axes[1].set_ylabel("Angle (rad)")
+    axes[1].set_title("Attitude: measurement vs Kalman")
     axes[1].grid(True, alpha=0.3)
     axes[1].legend(loc="upper right", ncol=2)
 
@@ -166,11 +151,16 @@ def main() -> int:
     def update(_frame):
         nonlocal first_t_ms
         nonlocal header_received
+        nonlocal last_plot_time
+        nonlocal last_flush_time
+        nonlocal y_rescale_counter
 
-        while True:
+        lines_processed = 0
+        while lines_processed < MAX_LINES_PER_UPDATE:
             raw = ser.readline()
             if not raw:
                 break
+            lines_processed += 1
 
             line = raw.decode("utf-8", errors="replace").strip()
             if not line:
@@ -203,19 +193,22 @@ def main() -> int:
                 else:
                     data[col].append(row[idx])
 
-        if data["t_ms"]:
+        now = time.monotonic()
+        should_plot = (now - last_plot_time) >= PLOT_CHUNK_SEC
+
+        if should_plot and data["t_ms"]:
             t = list(data["t_ms"])
 
-            line_map["ax_raw"].set_data(t, list(data["ax"]))
-            line_map["ay_raw"].set_data(t, list(data["ay"]))
-            line_map["az_raw"].set_data(t, list(data["az"]))
+            line_map["ax_meas"].set_data(t, list(data["ax_mps2"]))
+            line_map["ay_meas"].set_data(t, list(data["ay_mps2"]))
+            line_map["az_meas"].set_data(t, list(data["az_mps2"]))
             line_map["a_x_kalman"].set_data(t, list(data["a_x"]))
             line_map["a_y_kalman"].set_data(t, list(data["a_y"]))
             line_map["a_z_kalman"].set_data(t, list(data["a_z"]))
 
-            line_map["gx_raw"].set_data(t, list(data["gx"]))
-            line_map["gy_raw"].set_data(t, list(data["gy"]))
-            line_map["gz_raw"].set_data(t, list(data["gz"]))
+            line_map["roll_meas"].set_data(t, list(data["roll_rad"]))
+            line_map["pitch_meas"].set_data(t, list(data["pitch_rad"]))
+            line_map["yaw_meas"].set_data(t, list(data["yaw_rad"]))
             line_map["roll_kalman"].set_data(t, list(data["roll"]))
             line_map["pitch_kalman"].set_data(t, list(data["pitch"]))
             line_map["yaw_kalman"].set_data(t, list(data["yaw"]))
@@ -227,16 +220,25 @@ def main() -> int:
             line_map["v_y"].set_data(t, list(data["v_y"]))
             line_map["v_z"].set_data(t, list(data["v_z"]))
 
-            for ax in axes:
-                ax.relim()
-                ax.autoscale_view()
+            latest_t = t[-1]
+            axes[2].set_xlim(0.0, latest_t + 0.1)
+
+            y_rescale_counter += 1
+            if y_rescale_counter >= 4:
+                for ax in axes:
+                    ax.relim()
+                    ax.autoscale_view(scalex=False)
+                y_rescale_counter = 0
 
             fig.canvas.draw_idle()
+            last_plot_time = now
 
-        fp.flush()
+        if (now - last_flush_time) >= 1.0:
+            fp.flush()
+            last_flush_time = now
         return tuple(line_map.values())
 
-    ani = FuncAnimation(fig, update, interval=args.refresh_ms, blit=False, cache_frame_data=False)
+    ani = FuncAnimation(fig, update, interval=REFRESH_MS, blit=False, cache_frame_data=False)
 
     try:
         plt.show()
@@ -245,6 +247,7 @@ def main() -> int:
     finally:
         # keep reference alive for matplotlib
         _ = ani
+        fp.flush()
         fp.close()
         ser.close()
         print(f"Saved: {log_path}")

@@ -2,4 +2,6 @@
 .vscode
 compile_commands.json
 .cache
-logs/*.csv
+
+scripts/logs/*.csv
+__pycache__/

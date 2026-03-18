@@ -175,23 +175,23 @@ matrix* kalman_filter_get_z(void) { return &z; }
 	TODO: Maybe move to a separate loggin system later that is wireless and more robust.
 */
 void kalman_filter_debug_print_csv_header(void) {
-	Serial.println("t_ms,ax,ay,az,gx,gy,gz,p_x,p_y,p_z,v_x,v_y,v_z,a_x,a_y,a_z,roll,pitch,yaw");
+	Serial.println("t_ms,ax_mps2,ay_mps2,az_mps2,roll_rad,pitch_rad,yaw_rad,p_x,p_y,p_z,v_x,v_y,v_z,a_x,a_y,a_z,roll,pitch,yaw");
 }
 
-void kalman_filter_debug_print_csv_row( u32 t_ms, i16 ax, i16 ay, i16 az, i16 gx, i16 gy, i16 gz, const matrix *state) {
+void kalman_filter_debug_print_csv_row(u32 t_ms, f32 ax, f32 ay, f32 az, f32 roll_meas, f32 pitch_meas, f32 yaw_meas, const matrix *state) {
 	Serial.print(t_ms);
 	Serial.print(',');
-	Serial.print(ax);
+	Serial.print(ax, 6);
 	Serial.print(',');
-	Serial.print(ay);
+	Serial.print(ay, 6);
 	Serial.print(',');
-	Serial.print(az);
+	Serial.print(az, 6);
 	Serial.print(',');
-	Serial.print(gx);
+	Serial.print(roll_meas, 6);
 	Serial.print(',');
-	Serial.print(gy);
+	Serial.print(pitch_meas, 6);
 	Serial.print(',');
-	Serial.print(gz);
+	Serial.print(yaw_meas, 6);
 
 	for (int i = 0; i < state_dim; i++) {
 		Serial.print(',');
