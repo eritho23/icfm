@@ -1,7 +1,6 @@
 #include "gps.h"
 
 SFE_UBLOX_GNSS gps;
-
 SoftwareSerial soft_serial(20, 21); // RX, TX
 
 long last_time = 0; // Simple local timer. Limits amount of I2C traffic to u-blox module.

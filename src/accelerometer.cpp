@@ -1,14 +1,13 @@
 #include "accelerometer.h"
 
-MPU6050 mpu;
-
 #define OUTPUT_READABLE_ACCELGYRO
 //#define OUTPUT_BINARY_ACCELGYRO
 
-int16_t ax, ay, az;
-int16_t gx, gy, gz;
+MPU6050 mpu;
+acc_meas mpu_data; // global store for acc data
+f32 mpu_sample_rate;
 
-void setup_mpu() {
+b32 mpu_setup(void) {
 	Wire.begin();
 
 	Serial.println("Initializing MPU...");
@@ -17,7 +16,7 @@ void setup_mpu() {
 	Serial.println("Testing MPU6050 connection...");
 	if (mpu.testConnection() == false) {
 		Serial.println("MPU6050 connection failed");
-		while (true);
+		return false;
 	} else {
 		Serial.println("MPU6050 connection successful");
 	}
@@ -37,27 +36,37 @@ void setup_mpu() {
 	Serial.print("\t"); Serial.print(mpu.getYGyroOffset());
 	Serial.print("\t"); Serial.print(mpu.getZGyroOffset());
 	Serial.print("\n");
+
+	// Read + set sample rate
+	mpu_sample_rate = mpu.getRate();
+
+	return true;
 }
 
-void test_mpu() {
-	mpu.getMotion6(&ax, &ay, &az, &gx, &gy, &gz);
+acc_meas* get_acc_data(void) {
+	mpu.getMotion6(&(acc_data.ax), &(acc_data.ay), &(acc_data.az), &(acc_data.gx), &(acc_data.gy), &(acc_data.gz));
+	return &acc_data;
+}
+
+void mpu_debug(void) {
+	mpu.getMotion6(&(acc_data.ax), &(acc_data.ay), &(acc_data.az), &(acc_data.gx), &(acc_data.gy), &(acc_data.gz));
 
 #ifdef OUTPUT_READABLE_ACCELGYRO
 	Serial.print("a/g:\t");
-	Serial.print(ax); Serial.print("\t");
-	Serial.print(ay); Serial.print("\t");
-	Serial.print(az); Serial.print("\t");
-	Serial.print(gx); Serial.print("\t");
-	Serial.print(gy); Serial.print("\t");
-	Serial.println(gz);
+	Serial.print(acc_data.ax); Serial.print("\t");
+	Serial.print(acc_data.ay); Serial.print("\t");
+	Serial.print(acc_data.az); Serial.print("\t");
+	Serial.print(acc_data.gx); Serial.print("\t");
+	Serial.print(acc_data.gy); Serial.print("\t");
+	Serial.println(acc_data.gz);
 #endif
 
 #ifdef OUTPUT_BINARY_ACCELGYRO
-	Serial.write((uint8_t)(ax >> 8)); Serial.write((uint8_t)(ax & 0xFF));
-	Serial.write((uint8_t)(ay >> 8)); Serial.write((uint8_t)(ay & 0xFF));
-	Serial.write((uint8_t)(az >> 8)); Serial.write((uint8_t)(az & 0xFF));
-	Serial.write((uint8_t)(gx >> 8)); Serial.write((uint8_t)(gx & 0xFF));
-	Serial.write((uint8_t)(gy >> 8)); Serial.write((uint8_t)(gy & 0xFF));
-	Serial.write((uint8_t)(gz >> 8)); Serial.write((uint8_t)(gz & 0xFF));
+	Serial.write((uint8_t)(acc_data.ax >> 8)); Serial.write((uint8_t)(acc_data.ax & 0xFF));
+	Serial.write((uint8_t)(acc_data.ay >> 8)); Serial.write((uint8_t)(acc_data.ay & 0xFF));
+	Serial.write((uint8_t)(acc_data.az >> 8)); Serial.write((uint8_t)(acc_data.az & 0xFF));
+	Serial.write((uint8_t)(acc_data.gx >> 8)); Serial.write((uint8_t)(acc_data.gx & 0xFF));
+	Serial.write((uint8_t)(acc_data.gy >> 8)); Serial.write((uint8_t)(acc_data.gy & 0xFF));
+	Serial.write((uint8_t)(acc_data.gz >> 8)); Serial.write((uint8_t)(acc_data.gz & 0xFF));
 #endif
 }
