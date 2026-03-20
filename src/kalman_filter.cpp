@@ -38,16 +38,16 @@ MAT(Ky, state_dim, 1);             // K * innovation
 #define SET(mat, r, c, val) (mat).data[(int)(r)*(mat).cols + (int)(c)] = (val)
 
 static const f32 Q_diag[state_dim] = {
-	/* pos */ 0.01f, 0.01f, 0.01f,
-	/* vel */ 0.1f,  0.1f,  0.1f,
-	/* acc */ 1.0f,  1.0f,  1.0f,
-	/* att */ 0.01f, 0.01f, 0.01f
+    /* pos */ 0.01f,  0.01f,  0.01f,   // raise back up — model drifts in pos
+    /* vel */ 0.1f,   0.1f,   0.1f,    // raise back up — velocity changes fast
+    /* acc */ 0.5f,   0.5f,   0.5f,    // raise significantly — accel is unpredictable
+    /* att */ 0.01f,  0.01f,  0.01f,   // raise back up
 };
 
 static const f32 R_diag[me_dim] = {
-	/* gps */ 2.0f, 2.0f, 4.0f,
-	/* acc */ 0.1f, 0.1f, 0.1f,
-	/* att */ 0.01f,0.01f,0.05f
+    /* gps */ 2.0f,  2.0f,  4.0f,     // unchanged
+    /* acc */ 0.3f,  0.3f,  0.3f,     // slight trust, but not as low as 0.1
+    /* att */ 0.04f, 0.04f, 0.12f,    // moderate trust
 };
 
 static void build_H(void) {
