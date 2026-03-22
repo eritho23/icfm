@@ -5,7 +5,7 @@
 
 #include "base.h"
 #include "matrix_utils.h"
-
+#include "quaternion_utils.h"
 
 /*
    These enums help us identity which index is what in the matrices
@@ -15,22 +15,24 @@ typedef enum {
 	p_x = 0, p_y, p_z,
 	v_x, v_y, v_z,
 	a_x, a_y, a_z,
-	roll, pitch, yaw,
+	d_theta, d_alpha, d_beta,
 	state_dim // = 12
 } state_index;
 
 typedef enum {
-	me_gps_x = 0, me_gps_y, me_gps_z,
-	me_acc_x, me_acc_y, me_acc_z,
-	me_roll, me_pitch, me_yaw,
-	me_dim // = 9
+	m_gps_x = 0, m_gps_y, m_gps_z,
+	m_acc_x, m_acc_y, m_acc_z,
+	m_dim // = 6
 } me_index;
 
-b32 kalman_filter_init(const matrix *init_state, f32 init_variance);
-matrix* kalman_filter_update(f32 dt);
+b32 kalman_filter_init(const matrix* init_state, quat init_q, f32 init_variance);
+matrix* kalman_filter_update(f32 dt, f32 wx, f32 wy, f32 wz);
+void kalman_filter_rotate_accel(f32 ax_b, f32 ay_b, f32 az_b);
+
 matrix* kalman_filter_get_z(void);
+const quat* kalman_filter_get_quat(void);
 
 void kalman_filter_debug_print_csv_header(void);
-void kalman_filter_debug_print_csv_row(u32 t_ms, f32 ax, f32 ay, f32 az, f32 roll_meas, f32 pitch_meas, f32 yaw_meas, const matrix *state);
+void kalman_filter_debug_print_csv_row(u32 t_ms, f32 wx, f32 wy, f32 wz, const matrix *state);
 
 #endif

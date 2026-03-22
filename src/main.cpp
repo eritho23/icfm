@@ -1,15 +1,16 @@
 #include <Arduino.h>
 
-#include "accelerometer.h"
+#include "imu.h"
 #include "kalman_filter.h"
 #include "base.h"
-
-f32 dt;
 
 #define I2C_SDA 0
 #define I2C_SCL 1
 
-constexpr uint32_t log_period = 50;
+f32 dt;
+constexpr uint32_t log_period_ms = 50;
+
+static imu_m imu;
 
 void setup() {
 	Serial.begin(115200);
@@ -35,60 +36,72 @@ void setup() {
 	Serial.print("I2C scan done, devices found: ");
 	Serial.println(found);
 
-	if (!mpu_setup()) {
+	if (!imu_setup()) {
 		Serial.println("MPU setup failed");
 		while (true) {
 			delay(1000);
 		}
 	}
 
-	dt = 1.0f / mpu_sample_rate_hz;
+	dt = 1.0f / imu_sample_rate_hz;
 	Serial.println("sample rate:");
-	Serial.println(mpu_sample_rate_hz);
+	Serial.println(imu_sample_rate_hz);
 	Serial.println("dt");
 	Serial.println(dt);
 	Serial.println("starting testing in 3s");
 	delay(3000);
 
-	acc_meas acc;
-	while (!get_mpu_data(&acc)) {
+	while (!get_imu_data(&imu)) {
 		delay(1);
 	}
 
-	MAT(init_state, state_dim, 1);
-	mat_clear(&init_state);
-	init_state.data[a_x] = acc.ax;
-	init_state.data[a_y] = acc.ay;
-	init_state.data[a_z] = acc.az;
-	init_state.data[roll] = acc.roll;
-	init_state.data[pitch] = acc.pitch;
-	init_state.data[yaw] = acc.yaw;
-
-	kalman_filter_init(&init_state, 1.0f);
-	kalman_filter_debug_print_csv_header();
+	// Derive initial quaternion from gravity vector
+    // If rocket is vertical the initial tilt from identity will be small
+    f32 roll0  = atan2f(imu.ay, imu.az);
+    f32 pitch0 = atan2f(-imu.ax, sqrtf(imu.ay*imu.ay + imu.az*imu.az));
+    quat init_q;
+    init_q.w =  cosf(roll0/2.0f)*cosf(pitch0/2.0f);
+    init_q.x =  sinf(roll0/2.0f)*cosf(pitch0/2.0f);
+    init_q.y =  cosf(roll0/2.0f)*sinf(pitch0/2.0f);
+    init_q.z = -sinf(roll0/2.0f)*sinf(pitch0/2.0f);
+ 
+    // Initial state — position and velocity zero (launch site origin)
+    // Acceleration seeded from first IMU reading rotated to world frame
+    MAT(init_state, state_dim, 1);
+    mat_clear(&init_state);
+    // pos, vel left at zero
+    // acc: rotate body-frame accel to world frame using init_q
+    f32 a_body[3] = {imu.ax, imu.ay, imu.az};
+    f32 a_world[3];
+    quat_rotate(&init_q, a_body, a_world);
+    init_state.data[a_x] = a_world[0];
+    init_state.data[a_y] = a_world[1];
+    init_state.data[a_z] = a_world[2];
+    // delta_theta left at zero
+ 
+    kalman_filter_init(&init_state, init_q, 1.0f);
+    kalman_filter_debug_print_csv_header();
 }
 
 void loop() {
 	static u32 last_log_ms = 0;
 
-	acc_meas acc;
-	if (!get_mpu_data(&acc)) {
+	if (!get_imu_data(&imu)) {
 		return;
 	}
 
-	matrix *z = kalman_filter_get_z();
-	z->data[me_acc_x] = acc.ax;
-	z->data[me_acc_y] = acc.ay;
-	z->data[me_acc_z] = acc.az;
-	z->data[me_roll] = acc.roll;
-	z->data[me_pitch] = acc.pitch;
-	z->data[me_yaw] = acc.yaw;
-
-	const matrix *s = kalman_filter_update(dt);
-
-	const u32 now_ms = millis();
-	if (now_ms - last_log_ms >= log_period ) {
-		last_log_ms = now_ms;
-		kalman_filter_debug_print_csv_row(now_ms, acc.ax, acc.ay, acc.az, acc.roll, acc.pitch, acc.yaw, s);
-	}
+	// TODO: Fill later
+    // z->data[m_gps_x] = gps_x; etc.
+ 
+    // Rotate body-frame accel to world frame and write into z
+    kalman_filter_rotate_accel(imu.ax, imu.ay, imu.az);
+ 
+    // Update filter — gyro rates passed as arguments, not via z
+    const matrix *s = kalman_filter_update(dt, imu.wx, imu.wy, imu.wz);
+ 
+    const u32 now_ms = millis();
+    if (now_ms - last_log_ms >= log_period_ms) {
+        last_log_ms = now_ms;
+        kalman_filter_debug_print_csv_row(now_ms, imu.wx, imu.wy, imu.wz, s);
+    }
 }
