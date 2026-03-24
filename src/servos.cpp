@@ -1,6 +1,5 @@
-#include "servo.h"
+#include "servos.h"
 
-int servo_pin = 8;
 Servo servo;
 
 void servo_setup() {

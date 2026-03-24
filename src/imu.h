@@ -1,5 +1,5 @@
-#ifndef ACCELEROMETER_H
-#define ACCELEROMETER_H
+#ifndef IMU_H
+#define IMU_H
 
 #include <Arduino.h>
 #include <cstdint>
@@ -15,7 +15,7 @@ typedef struct {
 
 extern f32 imu_sample_rate_hz;
 
-b32 imu_setup(void);
+b32 imu_setup(f32 accel_avg_out[3]);
 void imu_debug(void);
 b32 get_imu_data(imu_m *out);
 

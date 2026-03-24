@@ -1,4 +1,23 @@
 #!/usr/bin/env python3
+"""
+Kalman + Controller Realtime Capture — low-latency version.
+
+Firmware emits two CSV rows per log tick on Serial:
+
+  Kalman row  (20 columns):
+    t_ms, wx, wy, wz,
+    p_x, p_y, p_z, v_x, v_y, v_z, a_x, a_y, a_z,
+    d_theta, d_alpha, d_beta,
+    q_w, q_x, q_y, q_z
+
+  Controller row  (9 columns):
+    t_ms,
+    qd_w, qd_x, qd_y, qd_z,
+    fin0, fin1, fin2, fin3
+
+Rows are distinguished by column count.
+Both are logged to separate CSV files under logs/.
+"""
 from __future__ import annotations
 
 import csv
@@ -10,341 +29,465 @@ import time
 
 import numpy as np
 
+# ---------------------------------------------------------------------------
+# Config
+# ---------------------------------------------------------------------------
+SERIAL_PORT        = "COM9"
+BAUD_RATE          = 115200
+SERIAL_TIMEOUT_SEC = 0.02
 
-COLUMNS = [
-        "t_ms",
-        "ax_mps2",
-        "ay_mps2",
-        "az_mps2",
-        "roll_rad",
-        "pitch_rad",
-        "yaw_rad",
-        "p_x",
-        "p_y",
-        "p_z",
-        "v_x",
-        "v_y",
-        "v_z",
-        "a_x",
-        "a_y",
-        "a_z",
-        "roll",
-        "pitch",
-        "yaw",
-        ]
-
-
-SERIAL_PORT = "COM9"
-BAUD_RATE = 115200
-SERIAL_TIMEOUT_SEC = 0.05
-
-MAX_POINTS = 2000
-REFRESH_MS = 100
-PLOT_CHUNK_SEC = 0.25
-MAX_LINES_PER_UPDATE = 300
+MAX_POINTS           = 500
+PLOT_INTERVAL_SEC    = 0.10    # ~10 fps
+MAX_LINES_PER_UPDATE = 500
+ORIENTATION_EVERY_N  = 5
 
 LOG_DIR = pathlib.Path("logs")
 
+# ── Column definitions ──────────────────────────────────────────────────────
+KALMAN_COLS = [
+    "t_ms",
+    "wx", "wy", "wz",
+    "p_x", "p_y", "p_z",
+    "v_x", "v_y", "v_z",
+    "a_x", "a_y", "a_z",
+    "d_theta", "d_alpha", "d_beta",
+    "q_w", "q_x", "q_y", "q_z",
+]
+CTRL_COLS = [
+    "t_ms",
+    "qd_w", "qd_x", "qd_y", "qd_z",
+    "fin0", "fin1", "fin2", "fin3",
+]
 
-def open_serial(port: str, baud: int, timeout: float):
+K_IDX = {col: i for i, col in enumerate(KALMAN_COLS)}
+C_IDX = {col: i for i, col in enumerate(CTRL_COLS)}
+
+N_KALMAN = len(KALMAN_COLS)   # 20
+N_CTRL   = len(CTRL_COLS)     #  9
+
+HEADER_PREFIXES = ("t_ms,",)
+
+
+# ---------------------------------------------------------------------------
+# Math helpers
+# ---------------------------------------------------------------------------
+def quat_to_rotation_matrix(q_w, q_x, q_y, q_z) -> np.ndarray:
+    n = (q_w**2 + q_x**2 + q_y**2 + q_z**2) ** 0.5
+    if n < 1e-9:
+        return np.eye(3)
+    w, x, y, z = q_w / n, q_x / n, q_y / n, q_z / n
+    return np.array([
+        [1 - 2*(y*y + z*z),   2*(x*y - w*z),   2*(x*z + w*y)],
+        [    2*(x*y + w*z), 1 - 2*(x*x + z*z),   2*(y*z - w*x)],
+        [    2*(x*z - w*y),   2*(y*z + w*x), 1 - 2*(x*x + y*y)],
+    ])
+
+
+def quat_to_euler(q_w, q_x, q_y, q_z):
+    n = (q_w**2 + q_x**2 + q_y**2 + q_z**2) ** 0.5
+    if n < 1e-9:
+        return 0.0, 0.0, 0.0
+    w, x, y, z = q_w / n, q_x / n, q_y / n, q_z / n
+    roll  = np.arctan2(2*(w*x + y*z), 1 - 2*(x*x + y*y))
+    sinp  = max(-1.0, min(1.0, 2*(w*y - z*x)))
+    pitch = np.arcsin(sinp)
+    yaw   = np.arctan2(2*(w*z + x*y), 1 - 2*(y*y + z*z))
+    return roll, pitch, yaw
+
+
+# ---------------------------------------------------------------------------
+# Serial helpers
+# ---------------------------------------------------------------------------
+def open_serial(port, baud, timeout):
     try:
-        import serial  # type: ignore
+        import serial
     except ImportError:
-        print("Missing dependency: pyserial", file=sys.stderr)
-        print("Install it with: pip install pyserial", file=sys.stderr)
-        sys.exit(2)
-
+        sys.exit("Missing pyserial — pip install pyserial")
     try:
         ser = serial.Serial(port=port, baudrate=baud, timeout=timeout)
         time.sleep(2.0)
         ser.reset_input_buffer()
         return ser
-    except Exception as exc:  # pragma: no cover
-        print(f"Failed to open serial port {port}: {exc}", file=sys.stderr)
-        sys.exit(1)
+    except Exception as exc:
+        sys.exit(f"Cannot open {port}: {exc}")
 
 
-def create_log_file(log_dir: pathlib.Path) -> pathlib.Path:
+def create_log_files(log_dir: pathlib.Path):
     log_dir.mkdir(parents=True, exist_ok=True)
     stamp = dt.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    return log_dir / f"kalman_{stamp}.csv"
+    return (
+        log_dir / f"kalman_{stamp}.csv",
+        log_dir / f"controller_{stamp}.csv",
+        log_dir / f"unknown_{stamp}.txt",   # capture unparsed lines for debug
+    )
 
 
-def parse_data_row(line: str) -> list[float] | None:
-    parts = [p.strip() for p in line.split(",")]
-    if len(parts) != len(COLUMNS):
-        return None
+def parse_row(line: str):
+    """
+    Return (kind, values) where kind is 'kalman', 'ctrl', or None.
+    Distinguished purely by column count: 20 = kalman, 9 = ctrl.
+    """
+    parts = line.split(",")
+    n = len(parts)
     try:
-        return [float(x) for x in parts]
+        values = [float(x) for x in parts]
     except ValueError:
-        return None
+        return None, None
+    if n == N_KALMAN:
+        return "kalman", values
+    if n == N_CTRL:
+        return "ctrl", values
+    return None, None
 
 
-def rpy_to_rotation_matrix(roll: float, pitch: float, yaw: float) -> np.ndarray:
-    """Build a ZYX rotation matrix from roll, pitch, yaw (radians)."""
-    cr, sr = np.cos(roll),  np.sin(roll)
-    cp, sp = np.cos(pitch), np.sin(pitch)
-    cy, sy = np.cos(yaw),   np.sin(yaw)
+# ---------------------------------------------------------------------------
+# 3-D orientation widget
+# ---------------------------------------------------------------------------
+class OrientationAxes:
+    COLORS = ["#E24B4A", "#1D9E75", "#378ADD"]
 
-    Rz = np.array([[ cy, -sy,  0],
-                   [ sy,  cy,  0],
-                   [  0,   0,  1]])
-    Ry = np.array([[ cp,   0, sp],
-                   [  0,   1,  0],
-                   [-sp,   0, cp]])
-    Rx = np.array([[  1,   0,   0],
-                   [  0,  cr, -sr],
-                   [  0,  sr,  cr]])
-    return Rz @ Ry @ Rx
+    def __init__(self, ax3d, title="Orientation"):
+        self.ax = ax3d
+        ax3d.set_xlim(-1.4, 1.4); ax3d.set_ylim(-1.4, 1.4); ax3d.set_zlim(-1.4, 1.4)
+        ax3d.set_xlabel("X", fontsize=8); ax3d.set_ylabel("Y", fontsize=8)
+        ax3d.set_zlabel("Z", fontsize=8)
+        ax3d.set_box_aspect([1, 1, 1])
+        ax3d.tick_params(labelsize=7)
+        ax3d.set_title(title, fontsize=9)
 
+        R = np.eye(3)
+        o = np.zeros(3)
+        self._q = [
+            ax3d.quiver(*o, *R[:, i], color=self.COLORS[i],
+                        linewidth=2.5, arrow_length_ratio=0.15)
+            for i in range(3)
+        ]
+        self._txt = [
+            ax3d.text(*(R[:, i] * 1.18), lbl, color=self.COLORS[i],
+                      fontsize=10, fontweight="bold", ha="center", va="center")
+            for i, lbl in enumerate("XYZ")
+        ]
+        for dx, dy, dz in [(1, 0, 0), (0, 1, 0), (0, 0, 1)]:
+            ax3d.quiver(0, 0, 0, dx, dy, dz, color="grey",
+                        alpha=0.18, linewidth=1, arrow_length_ratio=0.1)
 
-def draw_orientation_axes(ax3d, R: np.ndarray, R_meas: np.ndarray | None = None) -> None:
-    """
-    Redraw the 3-D orientation axes on *ax3d*.
-
-    Kalman axes  → solid, thick:   X=red, Y=green, Z=blue
-    Measured axes → dashed, thin:  same colours, lighter
-    """
-    ax3d.cla()
-
-    origin = np.zeros(3)
-    colors = ["#E24B4A", "#1D9E75", "#378ADD"]      # X, Y, Z
-    meas_colors = ["#F09595", "#9FE1CB", "#85B7EB"]  # lighter versions
-
-    labels = ["X", "Y", "Z"]
-
-    # Draw measured (ghost) axes first so they sit behind
-    if R_meas is not None:
+    def update(self, R: np.ndarray) -> None:
+        o = np.zeros(3)
         for i in range(3):
-            vec = R_meas[:, i]
-            ax3d.quiver(*origin, *vec,
-                        color=meas_colors[i], alpha=0.5,
-                        linewidth=1.5, linestyle="dashed",
-                        arrow_length_ratio=0.15)
-
-    # Draw Kalman axes
-    for i in range(3):
-        vec = R[:, i]
-        ax3d.quiver(*origin, *vec,
-                    color=colors[i], alpha=1.0,
-                    linewidth=2.5, linestyle="solid",
-                    arrow_length_ratio=0.15)
-        ax3d.text(vec[0] * 1.15, vec[1] * 1.15, vec[2] * 1.15,
-                  labels[i], color=colors[i], fontsize=10, fontweight="bold",
-                  ha="center", va="center")
-
-    # World frame reference (thin grey)
-    for i, (dx, dy, dz) in enumerate([(1,0,0),(0,1,0),(0,0,1)]):
-        ax3d.quiver(0, 0, 0, dx, dy, dz,
-                    color="grey", alpha=0.18, linewidth=1,
-                    arrow_length_ratio=0.1)
-
-    ax3d.set_xlim(-1.3, 1.3)
-    ax3d.set_ylim(-1.3, 1.3)
-    ax3d.set_zlim(-1.3, 1.3)
-    ax3d.set_xlabel("X", fontsize=8, labelpad=2)
-    ax3d.set_ylabel("Y", fontsize=8, labelpad=2)
-    ax3d.set_zlabel("Z", fontsize=8, labelpad=2)
-    ax3d.set_title("Orientation (3-D)", fontsize=9, pad=4)
-    ax3d.tick_params(labelsize=7)
-    ax3d.set_box_aspect([1, 1, 1])
+            self._q[i].remove()
+            self._q[i] = self.ax.quiver(*o, *R[:, i], color=self.COLORS[i],
+                                        linewidth=2.5, arrow_length_ratio=0.15)
+            self._txt[i].set_position_3d(R[:, i] * 1.18)
 
 
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
 def main() -> int:
     try:
-        import matplotlib.pyplot as plt  # type: ignore
-        from matplotlib.animation import FuncAnimation  # type: ignore
-        from mpl_toolkits.mplot3d import Axes3D  # type: ignore  # noqa: F401
+        import matplotlib
+        matplotlib.use("TkAgg")
+        import matplotlib.pyplot as plt
+        from matplotlib.animation import FuncAnimation
+        from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
     except ImportError:
-        print("Missing dependency: matplotlib", file=sys.stderr)
-        print("Install it with: pip install matplotlib", file=sys.stderr)
-        return 2
+        sys.exit("Missing matplotlib — pip install matplotlib")
 
     ser = open_serial(SERIAL_PORT, BAUD_RATE, SERIAL_TIMEOUT_SEC)
-    log_path = create_log_file(LOG_DIR)
-
+    kalman_log, ctrl_log, unknown_log = create_log_files(LOG_DIR)
     print(f"Listening on {SERIAL_PORT} @ {BAUD_RATE}")
-    print(f"Logging to {log_path}")
-    print("Close the plot window or press Ctrl+C to stop")
+    print(f"  Kalman log     → {kalman_log}")
+    print(f"  Controller log → {ctrl_log}")
+    print(f"  Unknown log    → {unknown_log}  (non-empty = parse problem)")
+    print("Close the window or Ctrl-C to stop.\n")
 
-    data = {name: deque(maxlen=MAX_POINTS) for name in COLUMNS}
+    # ── Ring buffers ─────────────────────────────────────────────────────────
+    kbuf: dict[str, deque] = {col: deque(maxlen=MAX_POINTS) for col in KALMAN_COLS}
+    cbuf: dict[str, deque] = {col: deque(maxlen=MAX_POINTS) for col in CTRL_COLS}
+    roll_buf   : deque = deque(maxlen=MAX_POINTS)
+    pitch_buf  : deque = deque(maxlen=MAX_POINTS)
+    yaw_buf    : deque = deque(maxlen=MAX_POINTS)
+    droll_buf  : deque = deque(maxlen=MAX_POINTS)
+    dpitch_buf : deque = deque(maxlen=MAX_POINTS)
+    dyaw_buf   : deque = deque(maxlen=MAX_POINTS)
+
+    # Shared time origin — set on the very first parseable row of either type
     first_t_ms: float | None = None
-    header_received = False
-    last_plot_time = time.monotonic()
-    last_flush_time = time.monotonic()
-    y_rescale_counter = 0
 
-    # ------------------------------------------------------------------ layout
-    # 3 time-series plots on the left column; 3-D orientation on the right.
-    fig = plt.figure(figsize=(14, 10))
-    fig.suptitle("Kalman Realtime Capture")
+    # Diagnostic counters
+    counts = {"kalman": 0, "ctrl": 0, "skip": 0, "bad": 0}
 
-    gs = fig.add_gridspec(3, 2, width_ratios=[2, 1], hspace=0.45, wspace=0.35)
+    last_plot_time = 0.0
+    orient_counter = 0
 
-    ax_accel  = fig.add_subplot(gs[0, 0])
-    ax_att    = fig.add_subplot(gs[1, 0], sharex=ax_accel)
-    ax_pos    = fig.add_subplot(gs[2, 0], sharex=ax_accel)
-    ax3d      = fig.add_subplot(gs[:, 1], projection="3d")
+    # ── Figure layout ────────────────────────────────────────────────────────
+    fig = plt.figure(figsize=(16, 9))
+    fig.suptitle("Kalman + Controller Realtime", fontsize=11)
 
-    # ---------------------------------------------------------------- 2-D lines
-    line_map = {
-            "ax_meas":    ax_accel.plot([], [], label="ax_meas",    alpha=0.75)[0],
-            "ay_meas":    ax_accel.plot([], [], label="ay_meas",    alpha=0.75)[0],
-            "az_meas":    ax_accel.plot([], [], label="az_meas",    alpha=0.75)[0],
-            "a_x_kalman": ax_accel.plot([], [], label="a_x_kalman", linewidth=2)[0],
-            "a_y_kalman": ax_accel.plot([], [], label="a_y_kalman", linewidth=2)[0],
-            "a_z_kalman": ax_accel.plot([], [], label="a_z_kalman", linewidth=2)[0],
+    gs = fig.add_gridspec(
+        3, 3,
+        width_ratios=[2.2, 1.3, 1.3],
+        hspace=0.52, wspace=0.32,
+    )
 
-            "roll_meas":   ax_att.plot([], [], label="roll_meas",   alpha=0.75)[0],
-            "pitch_meas":  ax_att.plot([], [], label="pitch_meas",  alpha=0.75)[0],
-            "yaw_meas":    ax_att.plot([], [], label="yaw_meas",    alpha=0.75)[0],
-            "roll_kalman": ax_att.plot([], [], label="roll_kalman", linewidth=2)[0],
-            "pitch_kalman":ax_att.plot([], [], label="pitch_kalman",linewidth=2)[0],
-            "yaw_kalman":  ax_att.plot([], [], label="yaw_kalman",  linewidth=2)[0],
+    ax_acc   = fig.add_subplot(gs[0, 0])
+    ax_att   = fig.add_subplot(gs[1, 0], sharex=ax_acc)
+    ax_pos   = fig.add_subplot(gs[2, 0], sharex=ax_acc)
+    ax3d_cur = fig.add_subplot(gs[0:2, 1], projection="3d")
+    ax_fins  = fig.add_subplot(gs[2, 1])
+    ax3d_des = fig.add_subplot(gs[0:2, 2], projection="3d")
+    ax_datt  = fig.add_subplot(gs[2, 2], sharex=ax_acc)
 
-            "p_x": ax_pos.plot([], [], label="p_x", linewidth=2)[0],
-            "p_y": ax_pos.plot([], [], label="p_y", linewidth=2)[0],
-            "p_z": ax_pos.plot([], [], label="p_z", linewidth=2)[0],
-            "v_x": ax_pos.plot([], [], label="v_x", linestyle="--")[0],
-            "v_y": ax_pos.plot([], [], label="v_y", linestyle="--")[0],
-            "v_z": ax_pos.plot([], [], label="v_z", linestyle="--")[0],
-            }
+    # ── Line factory ─────────────────────────────────────────────────────────
+    def lines(ax, specs):
+        return {k: ax.plot([], [], **kw)[0] for k, kw in specs.items()}
 
-    ax_accel.set_ylabel("Accel")
-    ax_accel.set_title("Acceleration (m/s²): measurement vs Kalman")
-    ax_accel.grid(True, alpha=0.3)
-    ax_accel.legend(loc="upper right", ncol=2, fontsize=7)
+    La = lines(ax_acc, {
+        "ax_k": dict(label="a_x", lw=2),
+        "ay_k": dict(label="a_y", lw=2),
+        "az_k": dict(label="a_z", lw=2),
+    })
+    Lb = lines(ax_att, {
+        "roll":  dict(label="roll",  lw=2),
+        "pitch": dict(label="pitch", lw=2),
+        "yaw":   dict(label="yaw",   lw=2),
+        "dth":   dict(label="dθ", ls=":", alpha=0.7, lw=1),
+        "dal":   dict(label="dα", ls=":", alpha=0.7, lw=1),
+        "dbe":   dict(label="dβ", ls=":", alpha=0.7, lw=1),
+    })
+    Lc = lines(ax_pos, {
+        "px": dict(label="p_x", lw=2),
+        "py": dict(label="p_y", lw=2),
+        "pz": dict(label="p_z", lw=2),
+        "vx": dict(label="v_x", ls="--", lw=1),
+        "vy": dict(label="v_y", ls="--", lw=1),
+        "vz": dict(label="v_z", ls="--", lw=1),
+    })
+    Lf = lines(ax_fins, {
+        "f0": dict(label="fin 0", lw=2),
+        "f1": dict(label="fin 1", lw=2),
+        "f2": dict(label="fin 2", lw=2),
+        "f3": dict(label="fin 3", lw=2),
+    })
+    Ld = lines(ax_datt, {
+        "droll":  dict(label="des roll",  lw=2, ls="--"),
+        "dpitch": dict(label="des pitch", lw=2, ls="--"),
+        "dyaw":   dict(label="des yaw",   lw=2, ls="--"),
+    })
 
-    ax_att.set_ylabel("Angle (rad)")
-    ax_att.set_title("Attitude: measurement vs Kalman")
-    ax_att.grid(True, alpha=0.3)
-    ax_att.legend(loc="upper right", ncol=2, fontsize=7)
+    # ── Axis labels / grid ───────────────────────────────────────────────────
+    for ax, title, ylabel in [
+        (ax_acc,  "Kalman acceleration (world frame, m/s²)", "m/s²"),
+        (ax_att,  "Attitude (ZYX Euler) + Δθ error",         "rad"),
+        (ax_pos,  "Position & velocity",                      "m / m/s"),
+        (ax_fins, "Fin deflections",                          "deg"),
+        (ax_datt, "Desired attitude (Euler from q_desired)",  "rad"),
+    ]:
+        ax.set_title(title, fontsize=8, pad=3)
+        ax.set_ylabel(ylabel, fontsize=8)
+        ax.grid(True, alpha=0.25)
+        ax.legend(loc="upper right", ncol=3, fontsize=6)
+    ax_pos.set_xlabel("Time (s)", fontsize=8)
+    ax_fins.set_xlabel("Time (s)", fontsize=8)
+    ax_datt.set_xlabel("Time (s)", fontsize=8)
 
-    ax_pos.set_ylabel("Position / Velocity")
-    ax_pos.set_xlabel("Time (s)")
-    ax_pos.set_title("Kalman position and velocity states")
-    ax_pos.grid(True, alpha=0.3)
-    ax_pos.legend(loc="upper right", ncol=2, fontsize=7)
+    # ── Diagnostic text overlay ───────────────────────────────────────────────
+    # Shows live row counts — if ctrl stays 0, the rows aren't arriving/parsing
+    diag_text = fig.text(
+        0.01, 0.005,
+        "waiting for data…",
+        fontsize=7, family="monospace",
+        va="bottom", ha="left",
+        color="#888888",
+    )
 
-    # Draw the 3-D panel once at identity so it isn't blank on startup
-    R0 = np.eye(3)
-    draw_orientation_axes(ax3d, R0)
+    # ── 3-D orientation widgets ──────────────────────────────────────────────
+    orient_cur = OrientationAxes(ax3d_cur, title="Current orientation")
+    orient_des = OrientationAxes(ax3d_des, title="Desired orientation")
 
-    fp = log_path.open("w", newline="", encoding="utf-8")
-    writer = csv.writer(fp)
-    writer.writerow(COLUMNS)
-    fp.flush()
+    fig.tight_layout(rect=[0, 0, 1, 0.96])
 
-    # ----------------------------------------------------------------- update
+    # ── Log files ────────────────────────────────────────────────────────────
+    fp_k = kalman_log.open("w", newline="", encoding="utf-8")
+    fp_c = ctrl_log.open("w", newline="", encoding="utf-8")
+    fp_u = unknown_log.open("w", encoding="utf-8")
+    writer_k = csv.writer(fp_k); writer_k.writerow(KALMAN_COLS)
+    writer_c = csv.writer(fp_c); writer_c.writerow(CTRL_COLS)
+
+    all_lines = (
+        list(La.values()) + list(Lb.values()) + list(Lc.values()) +
+        list(Lf.values()) + list(Ld.values())
+    )
+
+    # ── Animation callback ───────────────────────────────────────────────────
     def update(_frame):
-        nonlocal first_t_ms, header_received
-        nonlocal last_plot_time, last_flush_time, y_rescale_counter
+        nonlocal first_t_ms, last_plot_time, orient_counter
 
-        lines_processed = 0
-        while lines_processed < MAX_LINES_PER_UPDATE:
+        new_k = new_c = 0
+
+        for _ in range(MAX_LINES_PER_UPDATE):
             raw = ser.readline()
             if not raw:
                 break
-            lines_processed += 1
-
             line = raw.decode("utf-8", errors="replace").strip()
             if not line:
                 continue
             if line.startswith("err,"):
-                print(f"Device error: {line}")
+                counts["skip"] += 1
                 continue
-            if line.startswith("t_ms,"):
-                header_received = True
+            # Firmware may re-emit a CSV header row — skip it
+            if any(line.startswith(p) for p in HEADER_PREFIXES):
+                counts["skip"] += 1
                 continue
 
-            row = parse_data_row(line)
-            if row is None:
-                continue
-            if not header_received:
-                header_received = True
+            kind, row = parse_row(line)
 
-            writer.writerow(row)
+            if kind == "kalman":
+                writer_k.writerow(row)
+                counts["kalman"] += 1
+                new_k += 1
 
-            if first_t_ms is None:
-                first_t_ms = row[0]
+                t_raw = row[K_IDX["t_ms"]]
+                if first_t_ms is None:
+                    first_t_ms = t_raw
+                t_s = (t_raw - first_t_ms) / 1000.0
 
-            for idx, col in enumerate(COLUMNS):
-                if col == "t_ms":
-                    data[col].append((row[idx] - first_t_ms) / 1000.0)
-                else:
-                    data[col].append(row[idx])
+                kbuf["t_ms"].append(t_s)
+                for col in KALMAN_COLS[1:]:
+                    kbuf[col].append(row[K_IDX[col]])
+
+                r, p, y = quat_to_euler(
+                    row[K_IDX["q_w"]], row[K_IDX["q_x"]],
+                    row[K_IDX["q_y"]], row[K_IDX["q_z"]],
+                )
+                roll_buf.append(r); pitch_buf.append(p); yaw_buf.append(y)
+
+            elif kind == "ctrl":
+                writer_c.writerow(row)
+                counts["ctrl"] += 1
+                new_c += 1
+
+                t_raw = row[C_IDX["t_ms"]]
+                if first_t_ms is None:
+                    first_t_ms = t_raw
+                t_s = (t_raw - first_t_ms) / 1000.0
+
+                cbuf["t_ms"].append(t_s)
+                for col in CTRL_COLS[1:]:
+                    cbuf[col].append(row[C_IDX[col]])
+
+                dr, dp, dy = quat_to_euler(
+                    row[C_IDX["qd_w"]], row[C_IDX["qd_x"]],
+                    row[C_IDX["qd_y"]], row[C_IDX["qd_z"]],
+                )
+                droll_buf.append(dr); dpitch_buf.append(dp); dyaw_buf.append(dy)
+
+            else:
+                # Log unparsed lines — helps diagnose column-count mismatches
+                n_cols = len(line.split(","))
+                fp_u.write(f"[cols={n_cols}] {line}\n")
+                counts["bad"] += 1
+
+        if new_k: fp_k.flush()
+        if new_c: fp_c.flush()
+
+        # Update diagnostic overlay every frame (cheap)
+        diag_text.set_text(
+            f"kalman={counts['kalman']}  ctrl={counts['ctrl']}  "
+            f"skip={counts['skip']}  bad={counts['bad']}"
+        )
 
         now = time.monotonic()
-        should_plot = (now - last_plot_time) >= PLOT_CHUNK_SEC
+        if (now - last_plot_time) < PLOT_INTERVAL_SEC or not kbuf["t_ms"]:
+            return all_lines
+        last_plot_time = now
 
-        if should_plot and data["t_ms"]:
-            t = list(data["t_ms"])
+        t_k = list(kbuf["t_ms"])
 
-            # --- time-series updates ---
-            line_map["ax_meas"].set_data(t, list(data["ax_mps2"]))
-            line_map["ay_meas"].set_data(t, list(data["ay_mps2"]))
-            line_map["az_meas"].set_data(t, list(data["az_mps2"]))
-            line_map["a_x_kalman"].set_data(t, list(data["a_x"]))
-            line_map["a_y_kalman"].set_data(t, list(data["a_y"]))
-            line_map["a_z_kalman"].set_data(t, list(data["a_z"]))
+        # ── Kalman plots ──
+        La["ax_k"].set_data(t_k, list(kbuf["a_x"]))
+        La["ay_k"].set_data(t_k, list(kbuf["a_y"]))
+        La["az_k"].set_data(t_k, list(kbuf["a_z"]))
 
-            line_map["roll_meas"].set_data(t, list(data["roll_rad"]))
-            line_map["pitch_meas"].set_data(t, list(data["pitch_rad"]))
-            line_map["yaw_meas"].set_data(t, list(data["yaw_rad"]))
-            line_map["roll_kalman"].set_data(t, list(data["roll"]))
-            line_map["pitch_kalman"].set_data(t, list(data["pitch"]))
-            line_map["yaw_kalman"].set_data(t, list(data["yaw"]))
+        Lb["roll"].set_data(t_k,  list(roll_buf))
+        Lb["pitch"].set_data(t_k, list(pitch_buf))
+        Lb["yaw"].set_data(t_k,   list(yaw_buf))
+        Lb["dth"].set_data(t_k, list(kbuf["d_theta"]))
+        Lb["dal"].set_data(t_k, list(kbuf["d_alpha"]))
+        Lb["dbe"].set_data(t_k, list(kbuf["d_beta"]))
 
-            line_map["p_x"].set_data(t, list(data["p_x"]))
-            line_map["p_y"].set_data(t, list(data["p_y"]))
-            line_map["p_z"].set_data(t, list(data["p_z"]))
-            line_map["v_x"].set_data(t, list(data["v_x"]))
-            line_map["v_y"].set_data(t, list(data["v_y"]))
-            line_map["v_z"].set_data(t, list(data["v_z"]))
+        Lc["px"].set_data(t_k, list(kbuf["p_x"]))
+        Lc["py"].set_data(t_k, list(kbuf["p_y"]))
+        Lc["pz"].set_data(t_k, list(kbuf["p_z"]))
+        Lc["vx"].set_data(t_k, list(kbuf["v_x"]))
+        Lc["vy"].set_data(t_k, list(kbuf["v_y"]))
+        Lc["vz"].set_data(t_k, list(kbuf["v_z"]))
 
-            ax_pos.set_xlim(0.0, t[-1] + 0.1)
+        ax_pos.set_xlim(t_k[0], t_k[-1] + 0.5)
+        for ax in (ax_acc, ax_att, ax_pos):
+            ax.relim(); ax.autoscale_view(scalex=False)
 
-            y_rescale_counter += 1
-            if y_rescale_counter >= 4:
-                for ax in (ax_accel, ax_att, ax_pos):
-                    ax.relim()
-                    ax.autoscale_view(scalex=False)
-                y_rescale_counter = 0
+        # ── Controller plots ──
+        if cbuf["t_ms"]:
+            t_c = list(cbuf["t_ms"])
+            Lf["f0"].set_data(t_c, list(cbuf["fin0"]))
+            Lf["f1"].set_data(t_c, list(cbuf["fin1"]))
+            Lf["f2"].set_data(t_c, list(cbuf["fin2"]))
+            Lf["f3"].set_data(t_c, list(cbuf["fin3"]))
 
-            # --- 3-D orientation update (latest sample) ---
-            roll_k  = data["roll"][-1]
-            pitch_k = data["pitch"][-1]
-            yaw_k   = data["yaw"][-1]
+            Ld["droll"].set_data(t_c,  list(droll_buf))
+            Ld["dpitch"].set_data(t_c, list(dpitch_buf))
+            Ld["dyaw"].set_data(t_c,   list(dyaw_buf))
 
-            roll_m  = data["roll_rad"][-1]
-            pitch_m = data["pitch_rad"][-1]
-            yaw_m   = data["yaw_rad"][-1]
+            # Force a visible y-range even when fins are near zero,
+            # so "flat at zero" is distinguishable from "no data"
+            fin_vals = (
+                list(cbuf["fin0"]) + list(cbuf["fin1"]) +
+                list(cbuf["fin2"]) + list(cbuf["fin3"])
+            )
+            if fin_vals:
+                lo = min(min(fin_vals), -1.0)
+                hi = max(max(fin_vals),  1.0)
+                margin = max((hi - lo) * 0.1, 0.5)
+                ax_fins.set_ylim(lo - margin, hi + margin)
 
-            R_kalman = rpy_to_rotation_matrix(roll_k, pitch_k, yaw_k)
-            R_meas   = rpy_to_rotation_matrix(roll_m, pitch_m, yaw_m)
-            draw_orientation_axes(ax3d, R_kalman, R_meas)
+            for ax in (ax_fins, ax_datt):
+                ax.relim(); ax.autoscale_view(scalex=False)
 
-            fig.canvas.draw_idle()
-            last_plot_time = now
+        # ── 3-D orientation (throttled) ──
+        orient_counter += 1
+        if orient_counter >= ORIENTATION_EVERY_N:
+            orient_counter = 0
+            R_cur = quat_to_rotation_matrix(
+                kbuf["q_w"][-1], kbuf["q_x"][-1],
+                kbuf["q_y"][-1], kbuf["q_z"][-1],
+            )
+            orient_cur.update(R_cur)
+            if cbuf["qd_w"]:
+                R_des = quat_to_rotation_matrix(
+                    cbuf["qd_w"][-1], cbuf["qd_x"][-1],
+                    cbuf["qd_y"][-1], cbuf["qd_z"][-1],
+                )
+                orient_des.update(R_des)
 
-        if (now - last_flush_time) >= 1.0:
-            fp.flush()
-            last_flush_time = now
+        fig.canvas.draw_idle()
+        return all_lines
 
-        return tuple(line_map.values())
-
-    ani = FuncAnimation(fig, update, interval=REFRESH_MS, blit=False, cache_frame_data=False)
-
+    ani = FuncAnimation(fig, update, interval=50, blit=False,
+                        cache_frame_data=False)
     try:
         plt.show()
     except KeyboardInterrupt:
         pass
     finally:
-        _ = ani  # keep reference alive for matplotlib
-        fp.flush()
-        fp.close()
+        _ = ani
+        for fp in (fp_k, fp_c, fp_u):
+            fp.flush(); fp.close()
         ser.close()
-        print(f"Saved: {log_path}")
+        print(f"\nSaved kalman log    : {kalman_log}")
+        print(f"Saved controller log: {ctrl_log}")
+        print(f"Unparsed lines      : {unknown_log}  (bad={counts['bad']})")
+        print(f"Final counts — {counts}")
 
     return 0
 

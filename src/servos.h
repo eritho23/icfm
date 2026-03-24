@@ -1,10 +1,11 @@
-#ifndef SERVO_H
-#define SERVO_H
+#ifndef SERVOS_H
+#define SERVOS_H
 
 #include <Arduino.h>
 #include <ESP32Servo.h>
 
-extern int servo_pin;
+int servo_pin = 8;
+
 extern Servo servo;
 
 void servo_setup();
