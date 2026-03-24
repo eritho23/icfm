@@ -29,15 +29,14 @@ f32 pid_update(pid *p, f32 error, f32 rate, f32 dt) {
 }
 
 void controller_update(controller *c, f32 dt, quat *q_current, matrix *state) {
-    static quat q_prev = {1.0f, 0.0f, 0.0f, 0.0f}; // previous filtered quaternion
+    static quat q_prev = {1,0,0,0};
     static b32 q_prev_valid = false;
 
     (void)state;
 
-    if (dt <= 1e-6f) {
-        dt = 1e-3f;
-    }
+    if (dt <= 1e-6f) dt = 1e-3f;
 
+    // Normalize current attitude
     quat q_curr = *q_current;
     quat_normalise(&q_curr);
 
@@ -46,8 +45,8 @@ void controller_update(controller *c, f32 dt, quat *q_current, matrix *state) {
         q_prev_valid = true;
     }
 
-    // Keep quaternion sign continuous to avoid false 360deg jumps in dq.
-    f32 dot = q_curr.w * q_prev.w + q_curr.x * q_prev.x + q_curr.y * q_prev.y + q_curr.z * q_prev.z;
+    // Keep quaternion sign continuous
+    f32 dot = q_curr.w*q_prev.w + q_curr.x*q_prev.x + q_curr.y*q_prev.y + q_curr.z*q_prev.z;
     if (dot < 0.0f) {
         q_curr.w = -q_curr.w;
         q_curr.x = -q_curr.x;
@@ -55,18 +54,20 @@ void controller_update(controller *c, f32 dt, quat *q_current, matrix *state) {
         q_curr.z = -q_curr.z;
     }
 
-    // Attitude error in world frame
+    // Attitude error
     quat q_err = attitude_error(&c->q_desired, &q_curr);
-    f32 err_roll  = q_err.x;
-    f32 err_pitch = q_err.y;
-    f32 err_yaw   = q_err.z;
 
-    // Compute filtered body-frame angular rates from quaternion change
-    quat dq;
-    quat q_prev_conj;
+    // Small-angle approximation (IMPORTANT)
+    f32 err_roll = 2.0f * q_err.x;
+    f32 err_pitch = 2.0f * q_err.y;
+    f32 err_yaw = 2.0f * q_err.z;
+
+    // Angular rates from quaternion delta
+    quat dq, q_prev_conj;
     quat_conjugate(&q_prev_conj, &q_prev);
     quat_mul(&dq, &q_curr, &q_prev_conj);
     quat_normalise(&dq);
+
     if (dq.w < 0.0f) {
         dq.w = -dq.w;
         dq.x = -dq.x;
@@ -74,38 +75,54 @@ void controller_update(controller *c, f32 dt, quat *q_current, matrix *state) {
         dq.z = -dq.z;
     }
 
-    // Small-angle approximation for derivative
     f32 wx_b = 2.0f * dq.x / dt;
     f32 wy_b = 2.0f * dq.y / dt;
     f32 wz_b = 2.0f * dq.z / dt;
 
-    // Update previous quaternion for next loop
     q_prev = q_curr;
 
-    // PID, roll stays in body frame, pitch/yaw in world frame
-    f32 u_roll = pid_update(&c->pid_roll, err_roll, wx_b, dt);
+    // PID
+    f32 u_roll = pid_update(&c->pid_roll,  err_roll,  wx_b, dt);
     f32 u_pitch = pid_update(&c->pid_pitch, err_pitch, wy_b, dt);
-    f32 u_yaw = pid_update(&c->pid_yaw, err_yaw, wz_b, dt);
+    f32 u_yaw = pid_update(&c->pid_yaw,   err_yaw,   wz_b, dt);
 
-    // Rotate pitch/yaw demands from world → body frame
-    f32 u_pitchyaw_world[3] = { 0.0f, u_pitch, u_yaw };
-    f32 u_pitchyaw_body[3];
-    quat_rotate_inv(&q_curr, u_pitchyaw_world, u_pitchyaw_body);
-    f32 u_pitch_body = u_pitchyaw_body[1];
-    f32 u_yaw_body = u_pitchyaw_body[2];
+    // Rotate pitch/yaw from world → body
+    f32 u_world[3] = {0.0f, u_pitch, u_yaw};
+    f32 u_body[3];
+    quat_rotate_inv(&q_curr, u_world, u_body);
 
-    // Mix into fin deflections
-    f32 delta[4];
-    delta[0] =  u_roll + u_pitch_body;
-    delta[1] =  u_roll - u_pitch_body;
-    delta[2] = -u_roll + u_yaw_body;
-    delta[3] = -u_roll - u_yaw_body;
+    f32 u_pitch_b = u_body[1];
+    f32 u_yaw_b = u_body[2];
 
-    // Scale and clamp to servo angle (degrees)
+    // Mixer
+    f32 delta[4] = {
+        u_roll + u_pitch_b,
+        u_roll - u_pitch_b,
+        -u_roll + u_yaw_b,
+        -u_roll - u_yaw_b
+    };
+
+    // Normalize (critical fix for "too sensitive")
+    f32 max_abs = 0.0f;
     for (int i = 0; i < 4; i++) {
-        c->fin_angle_deg[i] = delta[i] * MAX_FIN_DEFLECTION_DEG;
-        if (c->fin_angle_deg[i] >  MAX_FIN_DEFLECTION_DEG) c->fin_angle_deg[i] =  MAX_FIN_DEFLECTION_DEG;
-        else if (c->fin_angle_deg[i] < -MAX_FIN_DEFLECTION_DEG) c->fin_angle_deg[i] = -MAX_FIN_DEFLECTION_DEG;
+        f32 a = fabsf(delta[i]);
+        if (a > max_abs) max_abs = a;
+    }
+
+    if (max_abs > 1.0f) {
+        for (int i = 0; i < 4; i++) {
+            delta[i] /= max_abs;
+        }
+    }
+
+    // Convert to fin angles
+    for (int i = 0; i < 4; i++) {
+        f32 cmd = delta[i] * MAX_FIN_DEFLECTION_DEG;
+
+        if (cmd > MAX_FIN_DEFLECTION_DEG) cmd = MAX_FIN_DEFLECTION_DEG;
+        if (cmd < -MAX_FIN_DEFLECTION_DEG) cmd = -MAX_FIN_DEFLECTION_DEG;
+
+        c->fin_angle_deg[i] = cmd;
     }
 }
 

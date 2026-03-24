@@ -80,9 +80,9 @@ void setup() {
     kalman_filter_debug_print_csv_header();
 
 	// PID tuning (example starting point)
-	ctrl.pid_roll = (pid){ .Kp=5.0f, .Ki=0.0f, .Kd=0.5f };
-	ctrl.pid_pitch = (pid){ .Kp=5.0f, .Ki=0.0f, .Kd=0.5f };
-	ctrl.pid_yaw = (pid){ .Kp=2.0f, .Ki=0.0f, .Kd=0.2f };
+	ctrl.pid_roll = (pid){ .Kp=0.8f, .Ki=0.0f, .Kd=0.08f };
+	ctrl.pid_pitch = (pid){ .Kp=0.8f, .Ki=0.0f, .Kd=0.08f };
+	ctrl.pid_yaw = (pid){ .Kp=0.4f, .Ki=0.0f, .Kd=0.04f };
 
 	// Desired attitude: straight up (world/body aligned).
 	ctrl.q_desired = (quat){1.0f, 0.0f, 0.0f, 0.0f};
