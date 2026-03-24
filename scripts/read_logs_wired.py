@@ -28,6 +28,7 @@ import sys
 import time
 
 import numpy as np
+from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 
 # ---------------------------------------------------------------------------
 # Config
@@ -39,7 +40,7 @@ SERIAL_TIMEOUT_SEC = 0.02
 MAX_POINTS           = 500
 PLOT_INTERVAL_SEC    = 0.10    # ~10 fps
 MAX_LINES_PER_UPDATE = 500
-ORIENTATION_EVERY_N  = 5
+ORIENTATION_EVERY_N  = 1
 
 LOG_DIR = pathlib.Path("logs")
 
@@ -95,6 +96,41 @@ def quat_to_euler(q_w, q_x, q_y, q_z):
     return roll, pitch, yaw
 
 
+def rotz(angle_rad: float) -> np.ndarray:
+    c = np.cos(angle_rad)
+    s = np.sin(angle_rad)
+    return np.array([
+        [c, -s, 0.0],
+        [s,  c, 0.0],
+        [0.0, 0.0, 1.0],
+    ])
+
+
+def roty(angle_rad: float) -> np.ndarray:
+    c = np.cos(angle_rad)
+    s = np.sin(angle_rad)
+    return np.array([
+        [ c, 0.0, s],
+        [0.0, 1.0, 0.0],
+        [-s, 0.0, c],
+    ])
+
+
+def rotx(angle_rad: float) -> np.ndarray:
+    c = np.cos(angle_rad)
+    s = np.sin(angle_rad)
+    return np.array([
+        [1.0, 0.0, 0.0],
+        [0.0, c, -s],
+        [0.0, s,  c],
+    ])
+
+
+# Mount correction for visualization.
+# IMU-to-body remapping is now handled in firmware, so keep identity here.
+ROCKET_TO_IMU_R = np.eye(3)
+
+
 # ---------------------------------------------------------------------------
 # Serial helpers
 # ---------------------------------------------------------------------------
@@ -118,7 +154,7 @@ def create_log_files(log_dir: pathlib.Path):
     return (
         log_dir / f"kalman_{stamp}.csv",
         log_dir / f"controller_{stamp}.csv",
-        log_dir / f"unknown_{stamp}.txt",   # capture unparsed lines for debug
+        log_dir / f"unknown_{stamp}.txt",   # created only if parse errors occur
     )
 
 
@@ -180,6 +216,178 @@ class OrientationAxes:
             self._txt[i].set_position_3d(R[:, i] * 1.18)
 
 
+class RocketModel3D:
+    FIN_COLORS = ["#F2634A", "#F8A445", "#59B56D", "#4EA1F3"]
+
+    def __init__(self, ax3d, title="Rocket attitude"):
+        self.ax = ax3d
+        if title:
+            self.ax.set_title(title, fontsize=9)
+        self.ax.set_xlim(-2.6, 2.6)
+        self.ax.set_ylim(-2.6, 2.6)
+        self.ax.set_zlim(-2.2, 2.8)
+        self.ax.set_xlabel("X", fontsize=8)
+        self.ax.set_ylabel("Y", fontsize=8)
+        self.ax.set_zlabel("Z", fontsize=8)
+        self.ax.set_box_aspect([1, 1, 1.2])
+        self.ax.tick_params(labelsize=7)
+        self.ax.set_facecolor("white")
+        self.ax.xaxis.set_pane_color((1.0, 1.0, 1.0, 1.0))
+        self.ax.yaxis.set_pane_color((1.0, 1.0, 1.0, 1.0))
+        self.ax.zaxis.set_pane_color((1.0, 1.0, 1.0, 1.0))
+        self.ax.xaxis._axinfo["grid"]["color"] = (0.55, 0.55, 0.55, 0.22)
+        self.ax.yaxis._axinfo["grid"]["color"] = (0.55, 0.55, 0.55, 0.22)
+        self.ax.zaxis._axinfo["grid"]["color"] = (0.55, 0.55, 0.55, 0.22)
+
+        # Slightly larger model so fin motion is easier to see.
+        self.body_radius = 0.16
+        self.tail_z = -1.35
+        self.nose_base_z = 1.20
+        self.tip_z = 1.62
+        self.fin_z0 = -1.28
+        self.fin_z1 = -0.72
+        self.fin_span = 0.72
+
+        self._body_lines = []
+        self._body_templates = []
+        self._ring_lines = []
+        self._ring_templates = []
+
+        self._build_body_wireframe()
+        self._build_nose()
+        self._build_fins()
+
+        # body axis indicator
+        self._axis_line, = self.ax.plot([], [], [], color="#222222", lw=1.6, alpha=0.85)
+
+    @staticmethod
+    def _transform(points: np.ndarray, R: np.ndarray) -> np.ndarray:
+        return points @ ROCKET_TO_IMU_R.T @ R.T
+
+    def _build_body_wireframe(self) -> None:
+        # Longitudinal lines
+        n_long = 10
+        for k in range(n_long):
+            th = 2.0 * np.pi * (k / n_long)
+            x = self.body_radius * np.cos(th)
+            y = self.body_radius * np.sin(th)
+            pts = np.array([
+                [x, y, self.tail_z],
+                [x, y, self.nose_base_z],
+            ])
+            self._body_templates.append(pts)
+            line, = self.ax.plot([], [], [], color="#A7B4C2", lw=1.25, alpha=0.95)
+            self._body_lines.append(line)
+
+        # Rings
+        for z in (self.tail_z, -0.35, 0.25, self.nose_base_z):
+            th = np.linspace(0.0, 2.0 * np.pi, 40)
+            pts = np.column_stack((
+                self.body_radius * np.cos(th),
+                self.body_radius * np.sin(th),
+                np.full_like(th, z),
+            ))
+            self._ring_templates.append(pts)
+            line, = self.ax.plot([], [], [], color="#B4BFCC", lw=1.1, alpha=0.85)
+            self._ring_lines.append(line)
+
+    def _build_nose(self) -> None:
+        n = 12
+        th = np.linspace(0.0, 2.0 * np.pi, n + 1)
+        self._nose_base = np.column_stack((
+            self.body_radius * np.cos(th),
+            self.body_radius * np.sin(th),
+            np.full_like(th, self.nose_base_z),
+        ))
+        self._nose_tip = np.array([0.0, 0.0, self.tip_z])
+        self._nose = Poly3DCollection([], facecolor="#D8DEE6", edgecolor="#AFBBC8", linewidths=0.65, alpha=0.95)
+        self.ax.add_collection3d(self._nose)
+
+    def _build_fins(self) -> None:
+        self._fin_polys = []
+        for i in range(4):
+            poly = Poly3DCollection([], facecolor=self.FIN_COLORS[i], edgecolor="#2A2A2A", linewidths=0.8, alpha=0.95)
+            self.ax.add_collection3d(poly)
+            self._fin_polys.append(poly)
+
+    def _fin_vertices_body(self, index: int, angle_deg: float) -> np.ndarray:
+        phi = index * (np.pi / 2.0)
+        r = np.array([np.cos(phi), np.sin(phi), 0.0])
+        z_axis = np.array([0.0, 0.0, 1.0])
+
+        # Fin geometry at zero deflection.
+        root_r = self.body_radius
+        tip_r = self.body_radius + self.fin_span
+        z_le = self.fin_z1  # leading edge (hinge line)
+        z_te = self.fin_z0  # trailing edge
+
+        p_root_le = root_r * r + z_le * z_axis
+        p_tip_le = tip_r * r + z_le * z_axis
+        p_tip_te = tip_r * r + z_te * z_axis
+        p_root_te = root_r * r + z_te * z_axis
+
+        a = np.deg2rad(float(angle_deg))
+
+        # Rotate trailing edge about the spanwise hinge axis (root->tip),
+        # so fins flap like aerodynamic control surfaces.
+        hinge_origin = p_root_le
+        hinge_axis = r
+
+        def rot_about_hinge(p: np.ndarray) -> np.ndarray:
+            v = p - hinge_origin
+            c = np.cos(a)
+            s = np.sin(a)
+            v_rot = v * c + np.cross(hinge_axis, v) * s + hinge_axis * np.dot(hinge_axis, v) * (1.0 - c)
+            return hinge_origin + v_rot
+
+        p_tip_te = rot_about_hinge(p_tip_te)
+        p_root_te = rot_about_hinge(p_root_te)
+
+        return np.array([p_root_le, p_tip_le, p_tip_te, p_root_te])
+
+    def update(self, R: np.ndarray, fin_angles_deg: list[float] | tuple[float, ...]) -> None:
+        # Body wireframe
+        for line, tpl in zip(self._body_lines, self._body_templates):
+            pts = self._transform(tpl, R)
+            line.set_data(pts[:, 0], pts[:, 1])
+            line.set_3d_properties(pts[:, 2])
+
+        for line, tpl in zip(self._ring_lines, self._ring_templates):
+            pts = self._transform(tpl, R)
+            line.set_data(pts[:, 0], pts[:, 1])
+            line.set_3d_properties(pts[:, 2])
+
+        # Nose cone
+        nose_base_world = self._transform(self._nose_base, R)
+        nose_tip_world = self._transform(self._nose_tip.reshape(1, 3), R)[0]
+        nose_tris = []
+        for i in range(len(nose_base_world) - 1):
+            nose_tris.append([
+                nose_tip_world,
+                nose_base_world[i],
+                nose_base_world[i + 1],
+            ])
+        self._nose.set_verts(nose_tris)
+
+        # Fins
+        angles = list(fin_angles_deg)
+        if len(angles) < 4:
+            angles = angles + [0.0] * (4 - len(angles))
+        for i, poly in enumerate(self._fin_polys):
+            fin_body = self._fin_vertices_body(i, float(angles[i]))
+            fin_world = self._transform(fin_body, R)
+            poly.set_verts([fin_world])
+
+        # Body axis
+        axis_body = np.array([
+            [0.0, 0.0, self.tail_z],
+            [0.0, 0.0, self.tip_z],
+        ])
+        axis_world = self._transform(axis_body, R)
+        self._axis_line.set_data(axis_world[:, 0], axis_world[:, 1])
+        self._axis_line.set_3d_properties(axis_world[:, 2])
+
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -193,12 +401,14 @@ def main() -> int:
     except ImportError:
         sys.exit("Missing matplotlib — pip install matplotlib")
 
+    plt.style.use("default")
+
     ser = open_serial(SERIAL_PORT, BAUD_RATE, SERIAL_TIMEOUT_SEC)
     kalman_log, ctrl_log, unknown_log = create_log_files(LOG_DIR)
     print(f"Listening on {SERIAL_PORT} @ {BAUD_RATE}")
     print(f"  Kalman log     → {kalman_log}")
     print(f"  Controller log → {ctrl_log}")
-    print(f"  Unknown log    → {unknown_log}  (non-empty = parse problem)")
+    print("  Unknown log    → created only if parse problems occur")
     print("Close the window or Ctrl-C to stop.\n")
 
     # ── Ring buffers ─────────────────────────────────────────────────────────
@@ -207,10 +417,6 @@ def main() -> int:
     roll_buf   : deque = deque(maxlen=MAX_POINTS)
     pitch_buf  : deque = deque(maxlen=MAX_POINTS)
     yaw_buf    : deque = deque(maxlen=MAX_POINTS)
-    droll_buf  : deque = deque(maxlen=MAX_POINTS)
-    dpitch_buf : deque = deque(maxlen=MAX_POINTS)
-    dyaw_buf   : deque = deque(maxlen=MAX_POINTS)
-
     # Shared time origin — set on the very first parseable row of either type
     first_t_ms: float | None = None
 
@@ -221,22 +427,17 @@ def main() -> int:
     orient_counter = 0
 
     # ── Figure layout ────────────────────────────────────────────────────────
-    fig = plt.figure(figsize=(16, 9))
-    fig.suptitle("Kalman + Controller Realtime", fontsize=11)
+    fig = plt.figure(figsize=(22, 12), facecolor="white")
 
-    gs = fig.add_gridspec(
-        3, 3,
-        width_ratios=[2.2, 1.3, 1.3],
-        hspace=0.52, wspace=0.32,
-    )
+    gs = fig.add_gridspec(4, 2, width_ratios=[1.45, 2.55], hspace=0.25, wspace=0.08)
 
     ax_acc   = fig.add_subplot(gs[0, 0])
     ax_att   = fig.add_subplot(gs[1, 0], sharex=ax_acc)
     ax_pos   = fig.add_subplot(gs[2, 0], sharex=ax_acc)
-    ax3d_cur = fig.add_subplot(gs[0:2, 1], projection="3d")
-    ax_fins  = fig.add_subplot(gs[2, 1])
-    ax3d_des = fig.add_subplot(gs[0:2, 2], projection="3d")
-    ax_datt  = fig.add_subplot(gs[2, 2], sharex=ax_acc)
+    ax_fins  = fig.add_subplot(gs[3, 0], sharex=ax_acc)
+    ax3d_cur = fig.add_subplot(gs[:, 1], projection="3d")
+
+    ax3d_cur.view_init(elev=16, azim=-58)
 
     # ── Line factory ─────────────────────────────────────────────────────────
     def lines(ax, specs):
@@ -269,59 +470,51 @@ def main() -> int:
         "f2": dict(label="fin 2", lw=2),
         "f3": dict(label="fin 3", lw=2),
     })
-    Ld = lines(ax_datt, {
-        "droll":  dict(label="des roll",  lw=2, ls="--"),
-        "dpitch": dict(label="des pitch", lw=2, ls="--"),
-        "dyaw":   dict(label="des yaw",   lw=2, ls="--"),
-    })
-
     # ── Axis labels / grid ───────────────────────────────────────────────────
     for ax, title, ylabel in [
         (ax_acc,  "Kalman acceleration (world frame, m/s²)", "m/s²"),
         (ax_att,  "Attitude (ZYX Euler) + Δθ error",         "rad"),
         (ax_pos,  "Position & velocity",                      "m / m/s"),
         (ax_fins, "Fin deflections",                          "deg"),
-        (ax_datt, "Desired attitude (Euler from q_desired)",  "rad"),
     ]:
         ax.set_title(title, fontsize=8, pad=3)
         ax.set_ylabel(ylabel, fontsize=8)
-        ax.grid(True, alpha=0.25)
+        ax.set_facecolor("white")
+        ax.grid(True, alpha=0.22, color="#777777")
+        ax.tick_params(colors="#222222", labelsize=7)
+        for spine in ax.spines.values():
+            spine.set_color("#555555")
         ax.legend(loc="upper right", ncol=3, fontsize=6)
     ax_pos.set_xlabel("Time (s)", fontsize=8)
     ax_fins.set_xlabel("Time (s)", fontsize=8)
-    ax_datt.set_xlabel("Time (s)", fontsize=8)
 
     # ── Diagnostic text overlay ───────────────────────────────────────────────
     # Shows live row counts — if ctrl stays 0, the rows aren't arriving/parsing
     diag_text = fig.text(
-        0.01, 0.005,
+        0.006, 0.004,
         "waiting for data…",
         fontsize=7, family="monospace",
         va="bottom", ha="left",
-        color="#888888",
+        color="#666666",
     )
 
     # ── 3-D orientation widgets ──────────────────────────────────────────────
-    orient_cur = OrientationAxes(ax3d_cur, title="Current orientation")
-    orient_des = OrientationAxes(ax3d_des, title="Desired orientation")
+    rocket_cur = RocketModel3D(ax3d_cur, title="")
 
-    fig.tight_layout(rect=[0, 0, 1, 0.96])
+    fig.tight_layout(rect=(0.001, 0.001, 0.999, 0.999), pad=0.45, w_pad=0.35, h_pad=0.35)
 
     # ── Log files ────────────────────────────────────────────────────────────
     fp_k = kalman_log.open("w", newline="", encoding="utf-8")
     fp_c = ctrl_log.open("w", newline="", encoding="utf-8")
-    fp_u = unknown_log.open("w", encoding="utf-8")
+    fp_u = None
     writer_k = csv.writer(fp_k); writer_k.writerow(KALMAN_COLS)
     writer_c = csv.writer(fp_c); writer_c.writerow(CTRL_COLS)
 
-    all_lines = (
-        list(La.values()) + list(Lb.values()) + list(Lc.values()) +
-        list(Lf.values()) + list(Ld.values())
-    )
+    all_lines = list(La.values()) + list(Lb.values()) + list(Lc.values()) + list(Lf.values())
 
     # ── Animation callback ───────────────────────────────────────────────────
     def update(_frame):
-        nonlocal first_t_ms, last_plot_time, orient_counter
+        nonlocal first_t_ms, last_plot_time, orient_counter, fp_u
 
         new_k = new_c = 0
 
@@ -376,15 +569,11 @@ def main() -> int:
                 for col in CTRL_COLS[1:]:
                     cbuf[col].append(row[C_IDX[col]])
 
-                dr, dp, dy = quat_to_euler(
-                    row[C_IDX["qd_w"]], row[C_IDX["qd_x"]],
-                    row[C_IDX["qd_y"]], row[C_IDX["qd_z"]],
-                )
-                droll_buf.append(dr); dpitch_buf.append(dp); dyaw_buf.append(dy)
-
             else:
                 # Log unparsed lines — helps diagnose column-count mismatches
                 n_cols = len(line.split(","))
+                if fp_u is None:
+                    fp_u = unknown_log.open("w", encoding="utf-8")
                 fp_u.write(f"[cols={n_cols}] {line}\n")
                 counts["bad"] += 1
 
@@ -435,9 +624,9 @@ def main() -> int:
             Lf["f2"].set_data(t_c, list(cbuf["fin2"]))
             Lf["f3"].set_data(t_c, list(cbuf["fin3"]))
 
-            Ld["droll"].set_data(t_c,  list(droll_buf))
-            Ld["dpitch"].set_data(t_c, list(dpitch_buf))
-            Ld["dyaw"].set_data(t_c,   list(dyaw_buf))
+            # Keep the fin plot's x-axis advancing with incoming controller time.
+            # (ax_fins is not sharex-linked with the Kalman axes.)
+            ax_fins.set_xlim(t_c[0], t_c[-1] + 0.5)
 
             # Force a visible y-range even when fins are near zero,
             # so "flat at zero" is distinguishable from "no data"
@@ -451,10 +640,7 @@ def main() -> int:
                 margin = max((hi - lo) * 0.1, 0.5)
                 ax_fins.set_ylim(lo - margin, hi + margin)
 
-            for ax in (ax_fins, ax_datt):
-                ax.relim(); ax.autoscale_view(scalex=False)
-
-        # ── 3-D orientation (throttled) ──
+        # ── 3-D rocket visualization (throttled) ──
         orient_counter += 1
         if orient_counter >= ORIENTATION_EVERY_N:
             orient_counter = 0
@@ -462,13 +648,16 @@ def main() -> int:
                 kbuf["q_w"][-1], kbuf["q_x"][-1],
                 kbuf["q_y"][-1], kbuf["q_z"][-1],
             )
-            orient_cur.update(R_cur)
-            if cbuf["qd_w"]:
-                R_des = quat_to_rotation_matrix(
-                    cbuf["qd_w"][-1], cbuf["qd_x"][-1],
-                    cbuf["qd_y"][-1], cbuf["qd_z"][-1],
-                )
-                orient_des.update(R_des)
+
+            fin_angles = [0.0, 0.0, 0.0, 0.0]
+            if cbuf["t_ms"]:
+                fin_angles = [
+                    float(cbuf["fin0"][-1]),
+                    float(cbuf["fin1"][-1]),
+                    float(cbuf["fin2"][-1]),
+                    float(cbuf["fin3"][-1]),
+                ]
+            rocket_cur.update(R_cur, fin_angles)
 
         fig.canvas.draw_idle()
         return all_lines
@@ -481,12 +670,17 @@ def main() -> int:
         pass
     finally:
         _ = ani
-        for fp in (fp_k, fp_c, fp_u):
+        for fp in (fp_k, fp_c):
             fp.flush(); fp.close()
+        if fp_u is not None:
+            fp_u.flush(); fp_u.close()
         ser.close()
         print(f"\nSaved kalman log    : {kalman_log}")
         print(f"Saved controller log: {ctrl_log}")
-        print(f"Unparsed lines      : {unknown_log}  (bad={counts['bad']})")
+        if fp_u is not None:
+            print(f"Unparsed lines      : {unknown_log}  (bad={counts['bad']})")
+        else:
+            print("Unparsed lines      : none")
         print(f"Final counts — {counts}")
 
     return 0

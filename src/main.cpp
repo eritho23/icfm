@@ -84,8 +84,8 @@ void setup() {
 	ctrl.pid_pitch = (pid){ .Kp=5.0f, .Ki=0.0f, .Kd=0.5f };
 	ctrl.pid_yaw = (pid){ .Kp=2.0f, .Ki=0.0f, .Kd=0.2f };
 
-	// Desired attitude = initial attitude (hold orientation)
-	ctrl.q_desired = init_q;
+	// Desired attitude: straight up (world/body aligned).
+	ctrl.q_desired = (quat){1.0f, 0.0f, 0.0f, 0.0f};
 	quat_normalise(&ctrl.q_desired);
 }
 

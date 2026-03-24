@@ -75,12 +75,25 @@ b32 get_imu_data(imu_m *out) {
     i16 ax_raw, ay_raw, az_raw, gx_raw, gy_raw, gz_raw;
     imu.getMotion6(&ax_raw, &ay_raw, &az_raw, &gx_raw, &gy_raw, &gz_raw);
 
-    out->ax = (f32)ax_raw * accel_scale;
-    out->ay = (f32)ay_raw * accel_scale;
-    out->az = (f32)az_raw * accel_scale;
-    out->wx = (f32)gx_raw * gyro_scale - gyro_bias[0];
-    out->wy = (f32)gy_raw * gyro_scale - gyro_bias[1];
-    out->wz = (f32)gz_raw * gyro_scale - gyro_bias[2];
+    // Raw IMU-frame measurements.
+    const f32 ax_i = (f32)ax_raw * accel_scale;
+    const f32 ay_i = (f32)ay_raw * accel_scale;
+    const f32 az_i = (f32)az_raw * accel_scale;
+    const f32 wx_i = (f32)gx_raw * gyro_scale - gyro_bias[0];
+    const f32 wy_i = (f32)gy_raw * gyro_scale - gyro_bias[1];
+    const f32 wz_i = (f32)gz_raw * gyro_scale - gyro_bias[2];
+
+    // IMU is mounted sideways relative to rocket body axes.
+    // body = R_x(-90 deg) * imu, so:
+    //   x_b =  x_i
+    //   y_b =  z_i
+    //   z_b = -y_i
+    out->ax = ax_i;
+    out->ay = az_i;
+    out->az = -ay_i;
+    out->wx = wx_i;
+    out->wy = wz_i;
+    out->wz = -wy_i;
 
     return true;
 }

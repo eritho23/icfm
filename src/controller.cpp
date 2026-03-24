@@ -24,14 +24,39 @@ f32 pid_update(pid *p, f32 error, f32 rate, f32 dt) {
 	if (p->integral > p->integral_limit) p->integral = p->integral_limit;
 	else if (p->integral < -p->integral_limit) p->integral = -p->integral_limit;
 
-    return p->Kp * error + p->Ki * p->integral + p->Kd * rate;
+    // With zero desired angular rate, derivative term should damp measured rate.
+    return p->Kp * error + p->Ki * p->integral - p->Kd * rate;
 }
 
 void controller_update(controller *c, f32 dt, quat *q_current, matrix *state) {
     static quat q_prev = {1.0f, 0.0f, 0.0f, 0.0f}; // previous filtered quaternion
+    static b32 q_prev_valid = false;
+
+    (void)state;
+
+    if (dt <= 1e-6f) {
+        dt = 1e-3f;
+    }
+
+    quat q_curr = *q_current;
+    quat_normalise(&q_curr);
+
+    if (!q_prev_valid) {
+        q_prev = q_curr;
+        q_prev_valid = true;
+    }
+
+    // Keep quaternion sign continuous to avoid false 360deg jumps in dq.
+    f32 dot = q_curr.w * q_prev.w + q_curr.x * q_prev.x + q_curr.y * q_prev.y + q_curr.z * q_prev.z;
+    if (dot < 0.0f) {
+        q_curr.w = -q_curr.w;
+        q_curr.x = -q_curr.x;
+        q_curr.y = -q_curr.y;
+        q_curr.z = -q_curr.z;
+    }
 
     // Attitude error in world frame
-    quat q_err = attitude_error(&c->q_desired, q_current);
+    quat q_err = attitude_error(&c->q_desired, &q_curr);
     f32 err_roll  = q_err.x;
     f32 err_pitch = q_err.y;
     f32 err_yaw   = q_err.z;
@@ -40,7 +65,14 @@ void controller_update(controller *c, f32 dt, quat *q_current, matrix *state) {
     quat dq;
     quat q_prev_conj;
     quat_conjugate(&q_prev_conj, &q_prev);
-    quat_mul(&dq, q_current, &q_prev_conj);
+    quat_mul(&dq, &q_curr, &q_prev_conj);
+    quat_normalise(&dq);
+    if (dq.w < 0.0f) {
+        dq.w = -dq.w;
+        dq.x = -dq.x;
+        dq.y = -dq.y;
+        dq.z = -dq.z;
+    }
 
     // Small-angle approximation for derivative
     f32 wx_b = 2.0f * dq.x / dt;
@@ -48,7 +80,7 @@ void controller_update(controller *c, f32 dt, quat *q_current, matrix *state) {
     f32 wz_b = 2.0f * dq.z / dt;
 
     // Update previous quaternion for next loop
-    q_prev = *q_current;
+    q_prev = q_curr;
 
     // PID, roll stays in body frame, pitch/yaw in world frame
     f32 u_roll = pid_update(&c->pid_roll, err_roll, wx_b, dt);
@@ -58,7 +90,7 @@ void controller_update(controller *c, f32 dt, quat *q_current, matrix *state) {
     // Rotate pitch/yaw demands from world → body frame
     f32 u_pitchyaw_world[3] = { 0.0f, u_pitch, u_yaw };
     f32 u_pitchyaw_body[3];
-    quat_rotate_inv(q_current, u_pitchyaw_world, u_pitchyaw_body);
+    quat_rotate_inv(&q_curr, u_pitchyaw_world, u_pitchyaw_body);
     f32 u_pitch_body = u_pitchyaw_body[1];
     f32 u_yaw_body = u_pitchyaw_body[2];
 
