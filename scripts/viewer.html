@@ -1,91 +1,106 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<title>Rocket Telemetry</title>
+<meta charset="utf-8">
+<title>ICFM log viewer</title>
 <style>
-body { font-family: sans-serif; margin: 20px; }
-h1 { font-size: 18px; margin-bottom: 10px; }
-#metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 20px; }
-.metric { font-size: 12px; }
-canvas { border: 1px solid #ccc; margin-bottom: 20px; }
+:root{
+    --bg:#ffffff;
+    --fg:#111111;
+    --grid:#e0e0e0;
+    --font:12px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+}
+body{margin:0;padding:16px;background:var(--bg);color:var(--fg);font:var(--font);}
+h1{font-size:16px;font-weight:600;margin:0 0 12px 0;letter-spacing:.3px}
+#metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:16px}
+.group{background:#fafafa;border:1px solid var(--grid);border-radius:4px;padding:8px 10px}
+.group h3{margin:0 0 6px 0;font-size:11px;font-weight:600;color:#555}
+.metric{font-size:11px;display:flex;justify-content:space-between}
+.metric span:last-child{font-variant-numeric:tabular-nums}
+.chartBox{position:relative;height:200px;margin-bottom:12px}
 </style>
 </head>
 <body>
-<h1>Rocket Telemetry</h1>
 
 <div id="metrics">
-  <div>
-    <h3>Position (m)</h3>
-    <div class="metric">p_x: <span id="p_x">—</span></div>
-    <div class="metric">p_y: <span id="p_y">—</span></div>
-    <div class="metric">p_z: <span id="p_z">—</span></div>
+  <div class="group"><h3>Position (m)</h3>
+    <div class="metric">p_x <span id="p_x">—</span></div>
+    <div class="metric">p_y <span id="p_y">—</span></div>
+    <div class="metric">p_z <span id="p_z">—</span></div>
   </div>
-  <div>
-    <h3>Velocity (m/s)</h3>
-    <div class="metric">v_x: <span id="v_x">—</span></div>
-    <div class="metric">v_y: <span id="v_y">—</span></div>
-    <div class="metric">v_z: <span id="v_z">—</span></div>
+  <div class="group"><h3>Velocity (m/s)</h3>
+    <div class="metric">v_x <span id="v_x">—</span></div>
+    <div class="metric">v_y <span id="v_y">—</span></div>
+    <div class="metric">v_z <span id="v_z">—</span></div>
   </div>
-  <div>
-    <h3>Acceleration (m/s²)</h3>
-    <div class="metric">a_x: <span id="a_x">—</span></div>
-    <div class="metric">a_y: <span id="a_y">—</span></div>
-    <div class="metric">a_z: <span id="a_z">—</span></div>
+  <div class="group"><h3>Acceleration (m/s²)</h3>
+    <div class="metric">a_x <span id="a_x">—</span></div>
+    <div class="metric">a_y <span id="a_y">—</span></div>
+    <div class="metric">a_z <span id="a_z">—</span></div>
   </div>
-  <div>
-    <h3>Gyro (rad/s)</h3>
-    <div class="metric">wx: <span id="wx">—</span></div>
-    <div class="metric">wy: <span id="wy">—</span></div>
-    <div class="metric">wz: <span id="wz">—</span></div>
+  <div class="group"><h3>Gyro (rad/s)</h3>
+    <div class="metric">wx <span id="wx">—</span></div>
+    <div class="metric">wy <span id="wy">—</span></div>
+    <div class="metric">wz <span id="wz">—</span></div>
   </div>
-  <div>
-    <h3>Attitude error (rad)</h3>
-    <div class="metric">dθ: <span id="d_theta">—</span></div>
-    <div class="metric">dα: <span id="d_alpha">—</span></div>
-    <div class="metric">dβ: <span id="d_beta">—</span></div>
+  <div class="group"><h3>Attitude error (rad)</h3>
+    <div class="metric">dθ <span id="d_theta">—</span></div>
+    <div class="metric">dα <span id="d_alpha">—</span></div>
+    <div class="metric">dβ <span id="d_beta">—</span></div>
   </div>
-  <div>
-    <h3>Quaternion</h3>
-    <div class="metric">w: <span id="q_w">—</span></div>
-    <div class="metric">x: <span id="q_x">—</span></div>
-    <div class="metric">y: <span id="q_y">—</span></div>
-    <div class="metric">z: <span id="q_z">—</span></div>
+  <div class="group"><h3>Quaternion</h3>
+    <div class="metric">w <span id="q_w">—</span></div>
+    <div class="metric">x <span id="q_x">—</span></div>
+    <div class="metric">y <span id="q_y">—</span></div>
+    <div class="metric">z <span id="q_z">—</span></div>
   </div>
-  <div>
-    <h3>Fins (°)</h3>
-    <div class="metric">Fin0: <span id="fin0">—</span></div>
-    <div class="metric">Fin1: <span id="fin1">—</span></div>
-    <div class="metric">Fin2: <span id="fin2">—</span></div>
-    <div class="metric">Fin3: <span id="fin3">—</span></div>
+  <div class="group"><h3>Fins (°)</h3>
+    <div class="metric">Fin0 <span id="fin0">—</span></div>
+    <div class="metric">Fin1 <span id="fin1">—</span></div>
+    <div class="metric">Fin2 <span id="fin2">—</span></div>
+    <div class="metric">Fin3 <span id="fin3">—</span></div>
   </div>
 </div>
 
-<canvas id="chart_alt" width="600" height="150"></canvas>
-<canvas id="chart_att" width="600" height="150"></canvas>
-<canvas id="chart_acc" width="600" height="150"></canvas>
-<canvas id="chart_fin" width="600" height="150"></canvas>
+<div class="chartBox"><canvas id="chart_alt"></canvas></div>
+<div class="chartBox"><canvas id="chart_att"></canvas></div>
+<div class="chartBox"><canvas id="chart_acc"></canvas></div>
+<div class="chartBox"><canvas id="chart_fin"></canvas></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
 <script>
-const MAX_POINTS = 200;
+Chart.defaults.font.size=11;
+Chart.defaults.font.family='-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif';
+Chart.defaults.color='#444';
+Chart.defaults.borderColor='#e0e0e0';
 
-function makeDS(label, color){ return {label, data: [], borderColor: color, fill:false}; }
-function makeChart(id, datasets){
-    const ctx = document.getElementById(id);
-    return new Chart(ctx, {
-        type: 'line',
-        data: { labels: [], datasets },
-        options: { animation:false, responsive:false, scales:{ x:{ display:true }, y:{ beginAtZero:true } } }
+function makeDS(label,color){
+    return {label,data:[],borderColor:color,backgroundColor:color+'33',borderWidth:1.5,pointRadius:0,tension:0.1};
+}
+function makeChart(id,datasets){
+    return new Chart(document.getElementById(id),{
+        type:'line',
+        data:{labels:[],datasets},
+        options:{
+            animation:false,
+            responsive:true,
+            maintainAspectRatio:false,
+            plugins:{legend:{position:'top',align:'end',labels:{boxWidth:12,padding:4}}},
+            scales:{
+                x:{grid:{color:'#f0f0f0',drawBorder:false},ticks:{maxTicksLimit:8}},
+                y:{grid:{color:'#f0f0f0',drawBorder:false},ticks:{maxTicksLimit:6}}
+            }
+        }
     });
 }
+const chartAlt=makeChart('chart_alt',[makeDS('altitude (m)','#1f77b4'),makeDS('speed (m/s)','#2ca02c')]);
+const chartAtt=makeChart('chart_att',[makeDS('roll (rad)','#d62728'),makeDS('pitch (rad)','#ff7f0e'),makeDS('yaw (rad)','#9467bd')]);
+const chartAcc=makeChart('chart_acc',[makeDS('a_x','#1f77b4'),makeDS('a_y','#2ca02c'),makeDS('a_z','#d62728')]);
+const chartFin=makeChart('chart_fin',[makeDS('fin0','#1f77b4'),makeDS('fin1','#2ca02c'),makeDS('fin2','#ff7f0e'),makeDS('fin3','#d62728')]);
 
-const chartAlt = makeChart('chart_alt', [ makeDS('p_z','blue'), makeDS('speed','green') ]);
-const chartAtt = makeChart('chart_att', [ makeDS('roll','red'), makeDS('pitch','orange'), makeDS('yaw','purple') ]);
-const chartAcc = makeChart('chart_acc', [ makeDS('a_x','blue'), makeDS('a_y','green'), makeDS('a_z','red') ]);
-const chartFin = makeChart('chart_fin', [ makeDS('fin0','blue'), makeDS('fin1','green'), makeDS('fin2','orange'), makeDS('fin3','red') ]);
-
-function pushChart(chart, t, vals){
+const MAX_POINTS=200;
+let commonTime=0;          // shared time base
+function pushChart(chart,t,vals){
     chart.data.labels.push(t.toFixed(1));
     vals.forEach((v,i)=>chart.data.datasets[i].data.push(v));
     if(chart.data.labels.length>MAX_POINTS){
@@ -94,38 +109,33 @@ function pushChart(chart, t, vals){
     }
     chart.update('none');
 }
-
 function quatToEuler(w,x,y,z){
-    const n = Math.sqrt(w*w+x*x+y*y+z*z)||1;
-    [w,x,y,z] = [w/n,x/n,y/n,z/n];
+    const n=Math.hypot(w,x,y,z)||1;[w,x,y,z]=[w/n,x/n,y/n,z/n];
     const roll=Math.atan2(2*(w*x+y*z),1-2*(x*x+y*y));
     const sinp=Math.max(-1,Math.min(1,2*(w*y-z*x)));
     const pitch=Math.asin(sinp);
     const yaw=Math.atan2(2*(w*z+x*y),1-2*(y*y+z*z));
     return [roll,pitch,yaw];
 }
-
-const ws = new WebSocket('ws://localhost:8765');
-ws.onmessage = e=>{
-    const msg = JSON.parse(e.data);
+const ws=new WebSocket('ws://localhost:8765');
+ws.onmessage=e=>{
+    const msg=JSON.parse(e.data);
     if(msg.type==='kalman'){
-        const d = msg.data;
-        // Update metrics
-        for(const k of ['p_x','p_y','p_z','v_x','v_y','v_z','a_x','a_y','a_z','wx','wy','wz','d_theta','d_alpha','d_beta','q_w','q_x','q_y','q_z']){
+        const d=msg.data;
+        commonTime=d.t_s;
+        for(const k of ['p_x','p_y','p_z','v_x','v_y','v_z','a_x','a_y','a_z','wx','wy','wz','d_theta','d_alpha','d_beta','q_w','q_x','q_y','q_z'])
             if(d[k]!==undefined) document.getElementById(k).textContent=d[k].toFixed(2);
-        }
-        // Charts
-        const speed=Math.sqrt(d.v_x**2+d.v_y**2+d.v_z**2);
+        const speed=Math.hypot(d.v_x,d.v_y,d.v_z);
         const [roll,pitch,yaw]=quatToEuler(d.q_w,d.q_x,d.q_y,d.q_z);
-        pushChart(chartAlt,d.t_s,[d.p_z,speed]);
-        pushChart(chartAtt,d.t_s,[roll,pitch,yaw]);
-        pushChart(chartAcc,d.t_s,[d.a_x,d.a_y,d.a_z]);
-    } else if(msg.type==='ctrl'){
-        const d = msg.data;
+        pushChart(chartAlt,commonTime,[d.p_z,speed]);
+        pushChart(chartAtt,commonTime,[roll,pitch,yaw]);
+        pushChart(chartAcc,commonTime,[d.a_x,d.a_y,d.a_z]);
+    }else if(msg.type==='ctrl'){
+        const d=msg.data;
         for(let i=0;i<4;i++){
             document.getElementById('fin'+i).textContent=d['fin'+i].toFixed(1);
-            pushChart(chartFin,d.t_s,[d.fin0,d.fin1,d.fin2,d.fin3]);
         }
+        pushChart(chartFin,commonTime,[d.fin0,d.fin1,d.fin2,d.fin3]);
     }
 };
 </script>
