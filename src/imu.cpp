@@ -32,7 +32,7 @@ b32 imu_setup(f32 accel_avg_out[3]) {
 
     Serial.println("Calibrating gyro bias, keep stationary...");
 
-    const int samples = 500;
+    const int samples = 2000;
     f32 gx_sum = 0.0f, gy_sum = 0.0f, gz_sum = 0.0f;
     f32 ax_sum = 0.0f, ay_sum = 0.0f, az_sum = 0.0f;
 
