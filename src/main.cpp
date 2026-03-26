@@ -53,9 +53,13 @@ void setup() {
 	}
 
 	// Derive initial quaternion from gravity vector
-    // If rocket is vertical the initial tilt from identity will be small
-    f32 roll0 = atan2f(imu_measurement.ay, imu_measurement.az);
-    f32 pitch0 = atan2f(-imu_measurement.ax, sqrtf(imu_measurement.ay*imu_measurement.ay + imu_measurement.az*imu_measurement.az));
+	f32 ax_b = imu_measurement.ax;
+	f32 ay_b = imu_measurement.ay;
+	f32 az_b = imu_measurement.az;
+
+	f32 roll0  = atan2f(ay_b, az_b);
+	f32 pitch0 = atan2f(-ax_b, sqrtf(ay_b*ay_b + az_b*az_b));
+
     quat init_q;
     init_q.w = cosf(roll0/2.0f)*cosf(pitch0/2.0f);
     init_q.x = sinf(roll0/2.0f)*cosf(pitch0/2.0f);
@@ -68,7 +72,7 @@ void setup() {
     mat_clear(&init_state);
     // pos, vel left at zero
     // acc: rotate body-frame accel to world frame using init_q
-    f32 a_body[3] = {imu_measurement.ax, imu_measurement.ay, imu_measurement.az};
+	f32 a_body[3] = {imu_measurement.ax, imu_measurement.ay, imu_measurement.az};
     f32 a_world[3];
     quat_rotate(&init_q, a_body, a_world);
     init_state.data[a_x] = a_world[0];
@@ -78,6 +82,24 @@ void setup() {
  
     kalman_filter_init(&init_state, init_q, 1.0f);
     kalman_filter_debug_print_csv_header();
+
+    // Serial.println("=== RAW DIAGNOSTIC ===");
+    // Serial.println("accel_x, accel_y, accel_z, q_w, q_x, q_y, q_z");
+    // u32 diag_start = millis();
+    // while (millis() - diag_start < 3000) {
+    //     imu_m d;
+    //     get_imu_data(&d);
+    //     const quat *q = kalman_filter_get_quat();
+    //     Serial.print(d.ax, 3); Serial.print(", ");
+    //     Serial.print(d.ay, 3); Serial.print(", ");
+    //     Serial.print(d.az, 3); Serial.print(", ");
+    //     Serial.print(q->w, 4); Serial.print(", ");
+    //     Serial.print(q->x, 4); Serial.print(", ");
+    //     Serial.print(q->y, 4); Serial.print(", ");
+    //     Serial.println(q->z, 4);
+    //     delay(100);
+    // }
+    // Serial.println("=== END DIAGNOSTIC ===");
 
 	// PID tuning (example starting point)
 	ctrl.pid_roll = (pid){ .Kp=0.8f, .Ki=0.0f, .Kd=0.08f };

@@ -85,15 +85,13 @@ b32 get_imu_data(imu_m *out) {
 
     // IMU is mounted sideways relative to rocket body axes.
     // body = R_x(-90 deg) * imu, so:
-    //   x_b =  x_i
-    //   y_b =  z_i
-    //   z_b = -y_i
-    out->ax = ax_i;
-    out->ay = az_i;
-    out->az = -ay_i;
-    out->wx = wx_i;
-    out->wy = wz_i;
-    out->wz = -wy_i;
+	out->ax = ax_i;
+	out->ay = az_i;
+	out->az = ay_i;
+
+	out->wx = wy_i;   // pitch rate
+	out->wy = -wz_i;   // yaw rate  
+	out->wz = wx_i;   // roll rate
 
     return true;
 }

@@ -30,7 +30,7 @@ static const f32 Q_diag[state_dim] = {
     0.01f, 0.01f, 0.01f,  // pos
     0.1f,  0.1f,  0.1f,   // vel
     0.5f,  0.5f,  0.5f,   // acc — high: thrust/drag are highly unpredictable
-    1e-5f, 1e-5f, 1e-5f,  // delta_theta
+    1e-3f, 1e-3f, 1e-3f,  // delta_theta,
 };
 
 static const f32 R_diag[m_dim] = {
@@ -94,7 +94,7 @@ static void _mekf_reset(void) {
     dq.z = 0.5f * x_posterior.data[d_beta];
     quat_normalise(&dq);
     quat qn;
-    quat_mul(&qn, &dq, &q_ref);
+	quat_mul(&qn, &q_ref, &dq);  // q_ref * dq
     quat_normalise(&qn);
     q_ref.w = qn.w; q_ref.x = qn.x; q_ref.y = qn.y; q_ref.z = qn.z;
     x_posterior.data[d_theta] = 0.0f;

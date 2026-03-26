@@ -95,12 +95,15 @@ void controller_update(controller *c, f32 dt, quat *q_current, matrix *state) {
     f32 u_yaw_b = u_body[2];
 
     // Mixer
-    f32 delta[4] = {
-        u_roll + u_pitch_b,
-        u_roll - u_pitch_b,
-        -u_roll + u_yaw_b,
-        -u_roll - u_yaw_b
-    };
+	// Fins at 0°, 90°, 180°, 270°
+	// Pitch pair: fins 0 and 2 (opposite)
+	// Yaw pair:   fins 1 and 3 (opposite)
+	f32 delta[4] = {
+		 u_yaw_b + u_roll, // fin0 (0°)
+		 u_pitch_b + u_roll, // fin1 (90°)
+		-u_yaw_b + u_roll, // fin2 (180°) — opposite to fin0
+		-u_pitch_b + u_roll, // fin3 (270°) — opposite to fin1
+	};
 
     // Normalize (critical fix for "too sensitive")
     f32 max_abs = 0.0f;
