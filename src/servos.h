@@ -4,11 +4,14 @@
 #include <Arduino.h>
 #include <ESP32Servo.h>
 
-int servo_pin = 8;
+#include "base.h"
 
-extern Servo servo;
+static const int servo_pins[4] = {2, 3, 10, 11};
 
-void servo_setup();
-void test_servo();
+extern Servo servos[4];
+
+void servos_setup();
+void test_servos();
+void servos_write(f32 fin_angle_deg[4]);
 
 #endif

@@ -25,7 +25,7 @@ f32 pid_update(pid *p, f32 error, f32 rate, f32 dt) {
 	else if (p->integral < -p->integral_limit) p->integral = -p->integral_limit;
 
     // With zero desired angular rate, derivative term should damp measured rate.
-    return p->Kp * error + p->Ki * p->integral - p->Kd * rate;
+    return p->kp * error + p->ki * p->integral - p->kd * rate;
 }
 
 void controller_update(controller *c, f32 dt, quat *q_current, matrix *state) {
@@ -105,7 +105,7 @@ void controller_update(controller *c, f32 dt, quat *q_current, matrix *state) {
 		-u_pitch_b + u_roll, // fin3 (270°) — opposite to fin1
 	};
 
-    // Normalize (critical fix for "too sensitive")
+    // Normalize
     f32 max_abs = 0.0f;
     for (int i = 0; i < 4; i++) {
         f32 a = fabsf(delta[i]);

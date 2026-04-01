@@ -1,9 +1,11 @@
 #include <Arduino.h>
 
 #include "base.h"
+
 #include "imu.h"
 #include "kalman_filter.h"
 #include "controller.h"
+#include "servos.h"
 
 #define I2C_SDA 0
 #define I2C_SCL 1
@@ -20,6 +22,8 @@ void setup() {
 	delay(500);
 	Wire.begin(I2C_SDA, I2C_SCL);
 	Wire.setClock(100000);
+
+	servos_setup();
 
 	// Serial.println("I2C scan start");
 	// u8 found = 0;
@@ -83,28 +87,10 @@ void setup() {
     kalman_filter_init(&init_state, init_q, 1.0f);
     kalman_filter_debug_print_csv_header();
 
-    // Serial.println("=== RAW DIAGNOSTIC ===");
-    // Serial.println("accel_x, accel_y, accel_z, q_w, q_x, q_y, q_z");
-    // u32 diag_start = millis();
-    // while (millis() - diag_start < 3000) {
-    //     imu_m d;
-    //     get_imu_data(&d);
-    //     const quat *q = kalman_filter_get_quat();
-    //     Serial.print(d.ax, 3); Serial.print(", ");
-    //     Serial.print(d.ay, 3); Serial.print(", ");
-    //     Serial.print(d.az, 3); Serial.print(", ");
-    //     Serial.print(q->w, 4); Serial.print(", ");
-    //     Serial.print(q->x, 4); Serial.print(", ");
-    //     Serial.print(q->y, 4); Serial.print(", ");
-    //     Serial.println(q->z, 4);
-    //     delay(100);
-    // }
-    // Serial.println("=== END DIAGNOSTIC ===");
-
 	// PID tuning (example starting point)
-	ctrl.pid_roll = (pid){ .Kp=0.8f, .Ki=0.0f, .Kd=0.08f };
-	ctrl.pid_pitch = (pid){ .Kp=0.8f, .Ki=0.0f, .Kd=0.08f };
-	ctrl.pid_yaw = (pid){ .Kp=0.4f, .Ki=0.0f, .Kd=0.04f };
+	ctrl.pid_roll = (pid){ .kp=0.8f, .ki=0.0f, .kd=0.08f };
+	ctrl.pid_pitch = (pid){ .kp=0.8f, .ki=0.0f, .kd=0.08f };
+	ctrl.pid_yaw = (pid){ .kp=0.4f, .ki=0.0f, .kd=0.04f };
 
 	// Desired attitude: straight up (world/body aligned).
 	ctrl.q_desired = (quat){1.0f, 0.0f, 0.0f, 0.0f};
@@ -113,24 +99,32 @@ void setup() {
 
 void loop() {
 	static u32 last_log_ms = 0;
+	static f32 last_fin_angle_deg[4] = {0.0f, 0.0f, 0.0f, 0.0f};
 
 	if (!get_imu_data(&imu_measurement)) {
 		return;
 	}
- 
-    // Rotate body-frame accel to world frame and write into z
-    kalman_filter_rotate_accel(imu_measurement.ax, imu_measurement.ay, imu_measurement.az);
- 
-    const matrix *s = kalman_filter_update(dt, imu_measurement.wx, imu_measurement.wy, imu_measurement.wz);
-	const quat *q = kalman_filter_get_quat();
 
-	// Run controller
+	kalman_filter_rotate_accel(imu_measurement.ax, imu_measurement.ay, imu_measurement.az);
+	const matrix *s = kalman_filter_update(dt, imu_measurement.wx, imu_measurement.wy, imu_measurement.wz);
+	const quat *q = kalman_filter_get_quat();
 	controller_update(&ctrl, dt, (quat*)q, (matrix*)s);
- 
-    const u32 now_ms = millis();
-    if (now_ms - last_log_ms >= log_period_ms) {
-        last_log_ms = now_ms;
-        kalman_filter_debug_print_csv_row(now_ms, imu_measurement.wx, imu_measurement.wy, imu_measurement.wz, s);
+
+	bool fins_changed = false;
+	for (int i = 0; i < 4; i++) {
+		if (ctrl.fin_angle_deg[i] != last_fin_angle_deg[i]) {
+			fins_changed = true;
+			last_fin_angle_deg[i] = ctrl.fin_angle_deg[i];
+		}
+	}
+	if (fins_changed) {
+		servos_write(ctrl.fin_angle_deg);
+	}
+
+	const u32 now_ms = millis();
+	if (now_ms - last_log_ms >= log_period_ms) {
+		last_log_ms = now_ms;
+		kalman_filter_debug_print_csv_row(now_ms, imu_measurement.wx, imu_measurement.wy, imu_measurement.wz, s);
 		controller_debug_print_csv_row(now_ms, &ctrl);
-    }
+	}
 }
