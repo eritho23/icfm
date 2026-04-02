@@ -17,6 +17,126 @@ static imu_m imu_measurement;
 
 static controller ctrl;
 
+// TODO: Break out the state logic to another file
+typedef enum {
+	STATE_IDLE = 0,
+	STATE_CALIBRATION_CHECKS = 1,
+	STATE_READY = 2,
+	STATE_LIFTOFF = 3,
+	STATE_CONTROL = 4,
+	STATE_APOGEE = 5,
+	STATE_TOUCHDOWN = 6
+} flight_state_t;
+
+static flight_state_t g_state = STATE_IDLE;
+static flight_state_t g_prev_state = STATE_IDLE;
+static u32 g_state_enter_ms = 0;
+static b32 g_imu_ready = false;
+static b32 g_kf_ready = false;
+static const matrix *g_last_kf_state = NULL;
+
+static void set_fins_neutral(void) {
+	f32 neutral[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+	servos_write(neutral);
+}
+
+static const char *state_name(flight_state_t s) {
+	switch (s) {
+		case STATE_IDLE: return "IDLE";
+		case STATE_CALIBRATION_CHECKS: return "CALIBRATION_CHECKS";
+		case STATE_READY: return "READY";
+		case STATE_LIFTOFF: return "LIFTOFF";
+		case STATE_CONTROL: return "CONTROL";
+		case STATE_APOGEE: return "APOGEE";
+		case STATE_TOUCHDOWN: return "TOUCHDOWN";
+		default: return "UNKNOWN";
+	}
+}
+
+static void enter_state(flight_state_t next) {
+	g_prev_state = g_state;
+	g_state = next;
+	g_state_enter_ms = millis();
+
+	if (next == STATE_IDLE || next == STATE_READY || next == STATE_TOUCHDOWN) {
+		set_fins_neutral();
+	}
+
+	Serial.print("STATE,");
+	Serial.print((int)g_prev_state);
+	Serial.print(",");
+	Serial.print((int)g_state);
+	Serial.print(",");
+	Serial.println(state_name(g_state));
+}
+
+static b32 serial_read_line(char *out, int max_len) {
+	static char buf[64];
+	static int idx = 0;
+
+	while (Serial.available() > 0) {
+		char c = (char)Serial.read();
+		if (c == '\r') {
+			continue;
+		}
+		if (c == '\n') {
+			buf[idx] = '\0';
+			strncpy(out, buf, (size_t)max_len - 1U);
+			out[max_len - 1] = '\0';
+			idx = 0;
+			return true;
+		}
+		if (idx < (int)sizeof(buf) - 1) {
+			buf[idx++] = c;
+		}
+	}
+
+	return false;
+}
+
+static b32 cmd_is(const char *cmd, const char *word) {
+	return strcmp(cmd, word) == 0;
+}
+
+static void print_commands(void) {
+	Serial.println("Commands: CALIBRATE, RESET");
+}
+
+static b32 init_kalman_from_current_imu(void) {
+	if (!get_imu_data(&imu_measurement)) {
+		return false;
+	}
+
+	f32 ax_b = imu_measurement.ax;
+	f32 ay_b = imu_measurement.ay;
+	f32 az_b = imu_measurement.az;
+
+	f32 roll0  = atan2f(ay_b, az_b);
+	f32 pitch0 = atan2f(-ax_b, sqrtf(ay_b*ay_b + az_b*az_b));
+
+	quat init_q;
+	init_q.w = cosf(roll0/2.0f)*cosf(pitch0/2.0f);
+	init_q.x = sinf(roll0/2.0f)*cosf(pitch0/2.0f);
+	init_q.y = cosf(roll0/2.0f)*sinf(pitch0/2.0f);
+	init_q.z = -sinf(roll0/2.0f)*sinf(pitch0/2.0f);
+
+	MAT(init_state, state_dim, 1);
+	mat_clear(&init_state);
+
+	f32 a_body[3] = {imu_measurement.ax, imu_measurement.ay, imu_measurement.az};
+	f32 a_world[3];
+	quat_rotate(&init_q, a_body, a_world);
+	init_state.data[a_x] = a_world[0];
+	init_state.data[a_y] = a_world[1];
+	init_state.data[a_z] = a_world[2];
+
+	if (!kalman_filter_init(&init_state, init_q, 1.0f)) {
+		return false;
+	}
+
+	return true;
+}
+
 void setup() {
 	Serial.begin(115200);
 	delay(500);
@@ -43,88 +163,122 @@ void setup() {
 	// Serial.print("I2C scan done, devices found: ");
 	// Serial.println(found);
 
-	if (!imu_setup(nullptr)) {
-		Serial.println("MPU setup failed");
-		while (true) {
-			delay(1000);
-		}
-	}
-
-	dt = 1.0f / imu_sample_rate_hz;
-
-	while (!get_imu_data(&imu_measurement)) {
-		delay(1);
-	}
-
-	// Derive initial quaternion from gravity vector
-	f32 ax_b = imu_measurement.ax;
-	f32 ay_b = imu_measurement.ay;
-	f32 az_b = imu_measurement.az;
-
-	f32 roll0  = atan2f(ay_b, az_b);
-	f32 pitch0 = atan2f(-ax_b, sqrtf(ay_b*ay_b + az_b*az_b));
-
-    quat init_q;
-    init_q.w = cosf(roll0/2.0f)*cosf(pitch0/2.0f);
-    init_q.x = sinf(roll0/2.0f)*cosf(pitch0/2.0f);
-    init_q.y = cosf(roll0/2.0f)*sinf(pitch0/2.0f);
-    init_q.z = -sinf(roll0/2.0f)*sinf(pitch0/2.0f);
- 
-    // Initial state — position and velocity zero (launch site origin)
-    // Acceleration seeded from first IMU reading rotated to world frame
-    MAT(init_state, state_dim, 1);
-    mat_clear(&init_state);
-    // pos, vel left at zero
-    // acc: rotate body-frame accel to world frame using init_q
-	f32 a_body[3] = {imu_measurement.ax, imu_measurement.ay, imu_measurement.az};
-    f32 a_world[3];
-    quat_rotate(&init_q, a_body, a_world);
-    init_state.data[a_x] = a_world[0];
-    init_state.data[a_y] = a_world[1];
-    init_state.data[a_z] = a_world[2];
-    // delta_theta left at zero
- 
-    kalman_filter_init(&init_state, init_q, 1.0f);
-    kalman_filter_debug_print_csv_header();
+	dt = 1.0f / 100.0f;
 
 	// PID tuning (example starting point)
 	ctrl.pid_roll = (pid){ .kp=0.8f, .ki=0.0f, .kd=0.08f };
 	ctrl.pid_pitch = (pid){ .kp=0.8f, .ki=0.0f, .kd=0.08f };
 	ctrl.pid_yaw = (pid){ .kp=0.4f, .ki=0.0f, .kd=0.04f };
+	ctrl.pid_roll.integral_limit = 1.0f;
+	ctrl.pid_pitch.integral_limit = 1.0f;
+	ctrl.pid_yaw.integral_limit = 1.0f;
 
 	// Desired attitude: straight up (world/body aligned).
 	ctrl.q_desired = (quat){1.0f, 0.0f, 0.0f, 0.0f};
 	quat_normalise(&ctrl.q_desired);
+
+	set_fins_neutral();
+	g_state = STATE_IDLE;
+	g_prev_state = STATE_IDLE;
+	g_state_enter_ms = millis();
+
+	print_commands();
+	Serial.println("STATE,0,0,IDLE");
 }
 
 void loop() {
 	static u32 last_log_ms = 0;
-	static f32 last_fin_angle_deg[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+	char cmd[64];
 
-	if (!get_imu_data(&imu_measurement)) {
-		return;
-	}
-
-	kalman_filter_rotate_accel(imu_measurement.ax, imu_measurement.ay, imu_measurement.az);
-	const matrix *s = kalman_filter_update(dt, imu_measurement.wx, imu_measurement.wy, imu_measurement.wz);
-	const quat *q = kalman_filter_get_quat();
-	controller_update(&ctrl, dt, (quat*)q, (matrix*)s);
-
-	bool fins_changed = false;
-	for (int i = 0; i < 4; i++) {
-		if (ctrl.fin_angle_deg[i] != last_fin_angle_deg[i]) {
-			fins_changed = true;
-			last_fin_angle_deg[i] = ctrl.fin_angle_deg[i];
+	if (serial_read_line(cmd, (int)sizeof(cmd))) {
+		if (cmd_is(cmd, "CALIBRATE")) {
+			if (g_state == STATE_IDLE || g_state == STATE_TOUCHDOWN) {
+				g_imu_ready = false;
+				g_kf_ready = false;
+				g_last_kf_state = NULL;
+				enter_state(STATE_CALIBRATION_CHECKS);
+			} else {
+				Serial.println("ERR,CALIBRATE only valid in IDLE or TOUCHDOWN");
+			}
+		} else if (cmd_is(cmd, "RESET")) {
+			g_imu_ready = false;
+			g_kf_ready = false;
+			g_last_kf_state = NULL;
+			enter_state(STATE_IDLE);
+		} else {
+			Serial.println("ERR,Unknown command");
+			print_commands();
 		}
 	}
-	if (fins_changed) {
-		servos_write(ctrl.fin_angle_deg);
+
+	switch (g_state) {
+		case STATE_IDLE:
+			break;
+
+		case STATE_CALIBRATION_CHECKS:
+			if (!g_imu_ready) {
+				if (!imu_setup(nullptr)) {
+					Serial.println("ERR,IMU setup failed");
+					enter_state(STATE_IDLE);
+					break;
+				}
+				g_imu_ready = true;
+				dt = 1.0f / imu_sample_rate_hz;
+				if (init_kalman_from_current_imu()) {
+					g_kf_ready = true;
+					kalman_filter_debug_print_csv_header();
+					enter_state(STATE_READY);
+				} else {
+					Serial.println("ERR,Kalman init failed");
+					enter_state(STATE_IDLE);
+				}
+			}
+			break;
+
+		case STATE_READY:
+		case STATE_LIFTOFF:
+			if (g_imu_ready) {
+				get_imu_data(&imu_measurement);
+			}
+			break;
+
+		case STATE_CONTROL:
+			if (g_imu_ready && g_kf_ready && get_imu_data(&imu_measurement)) {
+				kalman_filter_rotate_accel(imu_measurement.ax, imu_measurement.ay, imu_measurement.az);
+				const matrix *s = kalman_filter_update(dt, imu_measurement.wx, imu_measurement.wy, imu_measurement.wz);
+				const quat *q = kalman_filter_get_quat();
+				controller_update(&ctrl, dt, (quat*)q, (matrix*)s);
+				g_last_kf_state = s;
+				servos_write(ctrl.fin_angle_deg);
+			}
+			break;
+
+		case STATE_APOGEE:
+			set_fins_neutral();
+			break;
+
+		case STATE_TOUCHDOWN:
+			set_fins_neutral();
+			break;
+
+		default:
+			enter_state(STATE_IDLE);
+			break;
 	}
 
 	const u32 now_ms = millis();
 	if (now_ms - last_log_ms >= log_period_ms) {
 		last_log_ms = now_ms;
-		kalman_filter_debug_print_csv_row(now_ms, imu_measurement.wx, imu_measurement.wy, imu_measurement.wz, s);
-		controller_debug_print_csv_row(now_ms, &ctrl);
+		Serial.print("FSM,");
+		Serial.print(now_ms);
+		Serial.print(",");
+		Serial.print((int)g_state);
+		Serial.print(",");
+		Serial.println(state_name(g_state));
+
+		if (g_state == STATE_CONTROL && g_kf_ready && g_last_kf_state != NULL) {
+			kalman_filter_debug_print_csv_row(now_ms, imu_measurement.wx, imu_measurement.wy, imu_measurement.wz, g_last_kf_state);
+			controller_debug_print_csv_row(now_ms, &ctrl);
+		}
 	}
 }

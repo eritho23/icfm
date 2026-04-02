@@ -19,11 +19,20 @@ html, body { margin:0; padding:0; height:100%; overflow:hidden; font:12px/1.4 -a
 .chartBox canvas { width:100%; height:100%; }
 /* Toggle button */
 #toggleGraphs { position:absolute; bottom:8px; right:8px; z-index:6; padding:6px 10px; background:#fafafa; border:1px solid #e0e0e0; cursor:pointer; font-size:12px; font-weight:600; border-radius:4px; }
+#commandPanel { position:absolute; top:8px; left:8px; z-index:6; display:flex; gap:8px; align-items:center; background:rgba(250,250,250,0.95); border:1px solid #e0e0e0; border-radius:6px; padding:8px; }
+.cmdBtn { padding:6px 10px; background:#fafafa; border:1px solid #cfcfcf; cursor:pointer; font-size:12px; font-weight:600; border-radius:4px; }
+.cmdBtn:hover { background:#f0f0f0; }
+#cmdStatus { font-size:11px; color:#555; min-width:120px; }
 </style>
 </head>
 <body>
 <div id="view3d">
     <canvas id="rocket3d"></canvas>
+    <div id="commandPanel">
+        <button id="btnCalibrate" class="cmdBtn" type="button">Calibrate</button>
+        <button id="btnReset" class="cmdBtn" type="button">Reset</button>
+        <span id="cmdStatus">WS: connecting...</span>
+    </div>
     <div id="metrics">
         <div class="group"><h3>Position:</h3>
             <span class="metric">p_x <span id="p_x">—</span></span>
@@ -192,8 +201,39 @@ function quatToEuler(w, x, y, z) {
 
 // ── WebSocket
 const ws=new WebSocket('ws://localhost:8765');
+const btnCalibrate=document.getElementById('btnCalibrate');
+const btnReset=document.getElementById('btnReset');
+const cmdStatus=document.getElementById('cmdStatus');
+
+function setCommandStatus(text){
+    cmdStatus.textContent=text;
+}
+
+function sendCommand(cmd){
+    if(ws.readyState!==WebSocket.OPEN){
+        setCommandStatus('WS not connected');
+        return;
+    }
+    ws.send(JSON.stringify({type:'command',cmd}));
+    setCommandStatus('Sent: '+cmd);
+}
+
+btnCalibrate.addEventListener('click',()=>sendCommand('CALIBRATE'));
+btnReset.addEventListener('click',()=>sendCommand('RESET'));
+
+ws.onopen=()=>setCommandStatus('WS connected');
+ws.onclose=()=>setCommandStatus('WS disconnected');
+ws.onerror=()=>setCommandStatus('WS error');
 ws.onmessage = e=>{
     const msg=JSON.parse(e.data);
+    if(msg.type==='command_ack'){
+        if(msg.ok){
+            setCommandStatus('OK: '+msg.cmd);
+        }else{
+            setCommandStatus('ERR: '+(msg.reason||'command_failed'));
+        }
+        return;
+    }
     if(msg.type==='kalman'){
         const d=msg.data; commonTime=d.t_s;
 

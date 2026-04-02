@@ -4,7 +4,7 @@
 #include <Arduino.h>
 #include <cstdint>
 #include <Wire.h>
-#include <MPU6050.h>
+#include "Adafruit_ISM330DHCX.h"
 
 #include "base.h"
 

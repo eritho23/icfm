@@ -5,7 +5,7 @@
 #include "quaternion_utils.h"
 #include "kalman_filter.h"
 
-#define MAX_FIN_DEFLECTION_DEG 5.0f
+#define MAX_FIN_DEFLECTION_DEG 15.0f
 
 typedef struct {
     f32 kp;

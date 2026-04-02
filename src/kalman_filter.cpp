@@ -29,13 +29,13 @@ static quat q_ref = { 1.0f, 0.0f, 0.0f, 0.0f };
 static const f32 Q_diag[state_dim] = {
     0.01f, 0.01f, 0.01f,  // pos
     0.1f,  0.1f,  0.1f,   // vel
-    0.5f,  0.5f,  0.5f,   // acc — high: thrust/drag are highly unpredictable
+    0.3f,  0.3f,  0.3f,   // acc — high: thrust/drag are highly unpredictable
     1e-3f, 1e-3f, 1e-3f,  // delta_theta,
 };
 
 static const f32 R_diag[m_dim] = {
     1.5f, 1.5f, 4.0f,  // gps  (metres)
-    0.3f, 0.3f, 0.3f,  // accel (m/s²)
+    0.1f, 0.1f, 0.1f,  // accel (m/s²)
 };
 
 // State transition Jacobian F (12x12).

@@ -10,6 +10,7 @@ import datetime as dt
 import json
 import pathlib
 import sys
+from typing import Optional, Tuple, List
 
 SERIAL_PORT = "COM9"
 BAUD_RATE = 115200
@@ -31,7 +32,7 @@ CTRL_COLS = [
     "fin0", "fin1", "fin2", "fin3",
 ]
 
-HEADER_PREFIXES = ("t_ms,",)
+HEADER_PREFIXES = ("t_ms,", "Commands:", "STATE,", "FSM,")
 
 # ---------------------------------------------------------------------------
 # Serial helpers
@@ -49,7 +50,7 @@ def open_serial(port, baud, timeout):
         sys.exit(f"Cannot open {port}: {e}")
 
 
-def parse_row(line):
+def parse_row(line: str) -> Tuple[Optional[str], Optional[List[float]]]:
     parts = line.strip().split(",")
     try:
         vals = [float(p) for p in parts]
@@ -79,6 +80,8 @@ async def telemetry_server():
 
     # WebSocket clients
     clients: set = set()
+    serial_writer = None
+    serial_write_lock = asyncio.Lock()
 
     async def broadcast(msg):
         if not clients:
@@ -92,24 +95,70 @@ async def telemetry_server():
         clients.difference_update(dead)
 
     async def ws_handler(ws):
+        nonlocal serial_writer
         clients.add(ws)
         print(f"[ws] client connected ({len(clients)})")
         try:
-            await ws.wait_closed()
+            async for raw in ws:
+                try:
+                    msg = json.loads(raw)
+                except json.JSONDecodeError:
+                    continue
+
+                if msg.get("type") != "command":
+                    continue
+
+                cmd = str(msg.get("cmd", "")).strip().upper()
+                if cmd not in ("CALIBRATE", "RESET"):
+                    await ws.send(json.dumps({
+                        "type": "command_ack",
+                        "ok": False,
+                        "cmd": cmd,
+                        "reason": "invalid_command",
+                    }))
+                    continue
+
+                if serial_writer is None:
+                    await ws.send(json.dumps({
+                        "type": "command_ack",
+                        "ok": False,
+                        "cmd": cmd,
+                        "reason": "serial_not_ready",
+                    }))
+                    continue
+
+                try:
+                    async with serial_write_lock:
+                        serial_writer.write((cmd + "\n").encode("utf-8"))
+                        await serial_writer.drain()
+                    await ws.send(json.dumps({
+                        "type": "command_ack",
+                        "ok": True,
+                        "cmd": cmd,
+                    }))
+                except Exception as e:
+                    await ws.send(json.dumps({
+                        "type": "command_ack",
+                        "ok": False,
+                        "cmd": cmd,
+                        "reason": f"serial_write_error:{e}",
+                    }))
         finally:
             clients.discard(ws)
             print(f"[ws] client disconnected ({len(clients)})")
 
     async def serial_reader():
+        nonlocal serial_writer
         ser = await serial_asyncio.open_serial_connection(url=SERIAL_PORT, baudrate=BAUD_RATE)
-        reader, _ = ser
+        reader, writer = ser
+        serial_writer = writer
         first_t_ms = None
         while True:
             line = (await reader.readline()).decode("utf-8", errors="replace").strip()
-            if not line or any(line.startswith(p) for p in HEADER_PREFIXES) or line.startswith("err,"):
+            if not line or any(line.startswith(p) for p in HEADER_PREFIXES) or line.upper().startswith("ERR,"):
                 continue
             kind, row = parse_row(line)
-            if kind is None:
+            if kind is None or row is None:
                 continue
             if first_t_ms is None:
                 first_t_ms = row[0]
