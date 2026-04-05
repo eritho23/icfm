@@ -1,5 +1,8 @@
 <script lang="ts">
 	import { onDestroy, onMount, tick } from "svelte";
+	import { linear } from "svelte/easing";
+	import { fly } from "svelte/transition";
+	import type { TransitionConfig } from "svelte/transition";
 	import EyeClosed from "lucide-svelte/icons/eye-closed";
 	import ChevronsLeftRight from "lucide-svelte/icons/chevrons-left-right";
 	import ChevronsRightLeft from "lucide-svelte/icons/chevrons-right-left";
@@ -72,6 +75,8 @@
 
 	const maxSamples = 1200;
 	const serialMaxChars = 200_000;
+	const kalmanColsLen = 20;
+	const ctrlColsLen = 9;
 	const websocketUrl = "ws://localhost:8765";
 	const navTabs: Array<{ id: Tab; label: string }> = [
 		{ id: "space", label: "Space" },
@@ -100,15 +105,41 @@
 		"q_z",
 	] as const;
 
+	const transitionInDuration = 120;
+	const transitionOutDuration = 20;
+	const swipeDistance = 30;
+
+	// Out-transition: immediately lifts the departing element out of normal
+	// flow so it doesn't push or resize the incoming tab, then flies it away.
+	function flyOut(
+		node: HTMLElement,
+		params: { x: number },
+	): TransitionConfig {
+		node.style.position = "absolute";
+		node.style.top = "0";
+		node.style.left = "0";
+		node.style.right = "0";
+		node.style.pointerEvents = "none";
+		return fly(node, {
+			x: params.x,
+			opacity: 0,
+			duration: transitionOutDuration,
+			easing: linear,
+		});
+	}
+
 	let tab = $state<Tab>("space");
+	let tabDirection = $state<1 | -1>(1);
 	let wsState = $state<WsState>("connecting");
 	let commandStatus = $state("Awaiting command");
 	let serialText = $state("");
+	let missionTime = $state(0);
 	let metrics = $state<Metrics>(
 		Object.fromEntries(metricKeys.map((key) => [key, "-"])),
 	);
 	let serialViewport = $state<HTMLDivElement | null>(null);
 	let hideInterpreted = $state(false);
+	let autoScrollEnabled = $state(true);
 	let metricsExpanded = $state(false);
 
 	const liveState = { value: false };
@@ -122,6 +153,7 @@
 		pitch: [] as number[],
 		yaw: [] as number[],
 	};
+	const timeSeriesState = { values: [] as number[] };
 	const accState = {
 		x: [] as number[],
 		y: [] as number[],
@@ -133,7 +165,7 @@
 		fin2: [] as number[],
 		fin3: [] as number[],
 	};
-	const frozenState = { value: false };
+	let frozenState = $state({ value: false });
 
 	let ws: WebSocket | null = null;
 
@@ -159,6 +191,7 @@
 	}
 
 	function handleKalmanData(data: KalmanData) {
+		missionTime = data.t_s;
 		timeState.value = data.t_s;
 		updateKalmanMetrics(data);
 
@@ -170,6 +203,7 @@
 			data.q_z,
 		);
 
+		pushLimited(timeSeriesState.values, data.t_s);
 		pushLimited(altState.values, data.p_z);
 		pushLimited(speedState.values, speed);
 		pushLimited(attState.roll, roll);
@@ -201,8 +235,9 @@
 	}
 
 	function handleTelemetryMessage(msg: TelemetryMessage) {
+		if (frozenState.value) return;
+
 		if (msg.type === "serial_raw") {
-			if (frozenState.value) return;
 			appendSerialLine(String(msg.line ?? ""));
 			return;
 		}
@@ -213,8 +248,6 @@
 				: `Command failed: ${msg.reason ?? "unknown_error"}`;
 			return;
 		}
-
-		if (frozenState.value) return;
 
 		if (msg.type === "kalman") {
 			handleKalmanData(msg.data);
@@ -253,11 +286,13 @@
 		};
 	}
 
-	function isInterpretedLine(line: string) {
+	function isTelemetryCsvLine(line: string) {
 		const t = line.trim();
 		if (!t) return false;
-		if (t.startsWith("{") && t.endsWith("}")) return true;
-		return false;
+		const parts = t.split(",");
+		if (parts.length !== kalmanColsLen && parts.length !== ctrlColsLen)
+			return false;
+		return parts.every((part) => Number.isFinite(Number(part)));
 	}
 
 	const displaySerial = $derived.by(() => {
@@ -265,7 +300,7 @@
 		if (!hideInterpreted) return raw;
 		return raw
 			.split("\n")
-			.filter((line) => !isInterpretedLine(line))
+			.filter((line) => !isTelemetryCsvLine(line))
 			.join("\n");
 	});
 
@@ -301,8 +336,41 @@
 		ws.send(JSON.stringify({ type: "command", cmd }));
 	}
 
+	function selectTab(nextTab: Tab) {
+		if (nextTab === tab) return;
+		const currentIndex = navTabs.findIndex((t) => t.id === tab);
+		const nextIndex = navTabs.findIndex((t) => t.id === nextTab);
+		tabDirection = nextIndex > currentIndex ? 1 : -1;
+		tab = nextTab;
+	}
+
+	function scrollSerialToBottom() {
+		if (tab !== "serial" || !serialViewport || !autoScrollEnabled) return;
+		tick().then(() => {
+			if (!serialViewport) return;
+			serialViewport.scrollTop = serialViewport.scrollHeight;
+		});
+	}
+
+	function handleSerialScroll() {
+		if (!serialViewport) return;
+		const distanceFromBottom =
+			serialViewport.scrollHeight -
+			serialViewport.scrollTop -
+			serialViewport.clientHeight;
+		autoScrollEnabled = distanceFromBottom <= 8;
+	}
+
+	function resumeAutoScroll() {
+		autoScrollEnabled = true;
+		scrollSerialToBottom();
+	}
+
 	function toggleFreeze() {
 		frozenState.value = !frozenState.value;
+		if (!frozenState.value) {
+			scrollSerialToBottom();
+		}
 	}
 
 	const dockButtonClass =
@@ -319,13 +387,129 @@
 	$effect(() => {
 		displaySerial;
 		tab;
-		if (tab !== "serial" || !serialViewport) return;
-		tick().then(() => {
-			if (!serialViewport) return;
-			serialViewport.scrollTop = serialViewport.scrollHeight;
-		});
+		frozenState.value;
+		autoScrollEnabled;
+		if (frozenState.value) return;
+		scrollSerialToBottom();
 	});
 </script>
+
+{#snippet tabContent(t: Tab)}
+	{#if t === "space"}
+		<section
+			class="relative min-h-[calc(100dvh-12rem)] flex-1 overflow-hidden rounded-lg bg-[#f0efee]"
+		>
+			<RocketCanvas {finAnglesState} {quaternionState} />
+			<div
+				class="absolute right-4 bottom-14 left-4 flex flex-col items-center gap-2 text-xs"
+			>
+				{#if metricsExpanded}
+					<ul
+						class="font-roboto-mono flex max-w-full items-baseline gap-4 overflow-x-auto whitespace-nowrap py-2 text-xs"
+					>
+						{#each metricKeys as key}
+							<li
+								class="flex items-baseline gap-1.5 whitespace-nowrap"
+							>
+								<span class="font-normal text-[#7b7b7b]"
+									>{key}</span
+								>
+								<span
+									class="font-roboto-mono text-xs text-[#0d0d0d]"
+									>{metrics[key]}</span
+								>
+							</li>
+						{/each}
+					</ul>
+				{/if}
+				<button
+					type="button"
+					class="inline-flex cursor-pointer items-center gap-1 border-0 bg-transparent p-0 text-xs text-[#7b7b7b]"
+					onclick={() => (metricsExpanded = !metricsExpanded)}
+				>
+					<span>Metrics</span>
+					{#if metricsExpanded}
+						<ChevronsRightLeft
+							size={16}
+							strokeWidth={2}
+							class="shrink-0"
+						/>
+					{:else}
+						<ChevronsLeftRight
+							size={16}
+							strokeWidth={2}
+							class="shrink-0"
+						/>
+					{/if}
+				</button>
+			</div>
+		</section>
+	{:else if t === "graphs"}
+		<section class="relative flex flex-col overflow-visible pt-4 pb-2">
+			<TelemetryCharts
+				{liveState}
+				{timeState}
+				{timeSeriesState}
+				{altState}
+				{speedState}
+				{attState}
+				{accState}
+				{frozenState}
+			/>
+		</section>
+	{:else}
+		<div class="pt-2">
+			<section
+				class="flex h-[820px] w-full flex-col overflow-hidden rounded-lg bg-[#111113]"
+				aria-label="Serial monitor"
+			>
+				<div
+					bind:this={serialViewport}
+					onscroll={handleSerialScroll}
+					onwheel={() => (autoScrollEnabled = false)}
+					class="font-roboto-mono min-h-0 flex-1 overflow-auto px-5 py-4 text-sm leading-6 text-[#bbbac1]"
+				>
+					{#if displaySerial.length === 0}
+						<span class="text-[#bbbac1] opacity-65"
+							>Waiting for serial data...</span
+						>
+					{:else}
+						<pre
+							class="m-0 min-w-max whitespace-pre">{displaySerial}</pre>
+					{/if}
+				</div>
+				<div
+					class="flex items-center justify-between gap-4 border-t border-[#272727] px-5 py-3 text-sm text-[#7b7b7b]"
+				>
+					<div class="flex items-center gap-4">
+						<button
+							type="button"
+							class={`inline-flex cursor-pointer items-center gap-1 border-0 bg-transparent p-0 ${hideInterpreted ? "text-[#f0efee]" : "text-[#7b7b7b]"}`}
+							onclick={() => (hideInterpreted = !hideInterpreted)}
+						>
+							<EyeClosed
+								size={16}
+								strokeWidth={1.5}
+								class="shrink-0"
+							/>
+							<span>Hide interpreted</span>
+						</button>
+						{#if !autoScrollEnabled}
+							<button
+								type="button"
+								class="cursor-pointer border-0 bg-transparent p-0 text-[#f0efee]"
+								onclick={resumeAutoScroll}
+							>
+								Resume auto-scroll
+							</button>
+						{/if}
+					</div>
+					<span>Time: {formatMissionTime(missionTime)}</span>
+				</div>
+			</section>
+		</div>
+	{/if}
+{/snippet}
 
 <div
 	class="relative flex min-h-dvh flex-col bg-[#f0efee] px-4 pb-44 text-sm text-[#0d0d0d] sm:px-10 sm:pb-36"
@@ -346,7 +530,8 @@
 					<button
 						type="button"
 						class={`link cursor-pointer border-0 bg-transparent p-0 text-sm font-normal ${tab === navTab.id ? "text-[#7b7b7b]" : "text-[#0d0d0d]"}`}
-						onclick={() => (tab = navTab.id)}>{navTab.label}</button
+						onclick={() => selectTab(navTab.id)}
+						>{navTab.label}</button
 					>
 				{/each}
 			</nav>
@@ -354,99 +539,24 @@
 	</header>
 
 	<main class="flex min-h-0 flex-1 flex-col pt-20">
-		{#if tab === "space"}
-			<section class="relative min-h-[480px] flex-1 overflow-hidden rounded-lg bg-[#f0efee]">
-				<RocketCanvas {finAnglesState} {quaternionState} />
+		<div
+			class="relative min-h-0 flex-1 overflow-x-hidden overflow-y-visible"
+		>
+			{#key tab}
 				<div
-					class="absolute right-4 bottom-14 left-4 flex flex-col items-center gap-2 text-xs"
+					in:fly|global={{
+						x: tabDirection * swipeDistance,
+						duration: transitionInDuration,
+						opacity: 0,
+						easing: linear,
+					}}
+					out:flyOut|global={{ x: tabDirection * -swipeDistance }}
+					class="relative flex flex-col"
 				>
-					{#if metricsExpanded}
-						<ul
-							class="font-roboto-mono flex max-w-full items-baseline gap-4 overflow-x-auto whitespace-nowrap py-2 text-xs"
-						>
-							{#each metricKeys as key}
-								<li
-									class="flex items-baseline gap-1.5 whitespace-nowrap"
-								>
-									<span class="font-normal text-[#7b7b7b]"
-										>{key}</span
-									>
-									<span
-										class="font-roboto-mono text-xs text-[#0d0d0d]"
-										>{metrics[key]}</span
-									>
-								</li>
-							{/each}
-						</ul>
-					{/if}
-					<button
-						type="button"
-						class="inline-flex cursor-pointer items-center gap-1 border-0 bg-transparent p-0 text-xs text-[#7b7b7b]"
-						onclick={() => (metricsExpanded = !metricsExpanded)}
-					>
-						<span>Metrics</span>
-						{#if metricsExpanded}
-							<ChevronsRightLeft
-								size={16}
-								strokeWidth={2}
-								class="shrink-0"
-							/>
-						{:else}
-							<ChevronsLeftRight
-								size={16}
-								strokeWidth={2}
-								class="shrink-0"
-							/>
-						{/if}
-					</button>
+					{@render tabContent(tab)}
 				</div>
-			</section>
-		{:else if tab === "graphs"}
-			<section class="relative flex min-h-0 flex-1 flex-col overflow-auto pt-4 pb-2">
-				<TelemetryCharts
-					{liveState}
-					{timeState}
-					{altState}
-					{speedState}
-					{attState}
-					{accState}
-					{frozenState}
-				/>
-			</section>
-		{:else}
-			<section class="mt-2 flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg bg-[#111113]" aria-label="Serial monitor">
-				<div
-					bind:this={serialViewport}
-					class="font-roboto-mono min-h-0 flex-1 overflow-auto px-5 py-4 text-sm leading-6 text-[#bbbac1]"
-				>
-					{#if displaySerial.length === 0}
-						<span class="text-[#bbbac1] opacity-65"
-							>Waiting for serial data...</span
-						>
-					{:else}
-						<pre
-							class="m-0 whitespace-pre-wrap break-words">{displaySerial}</pre>
-					{/if}
-				</div>
-				<div
-					class="flex items-center justify-between gap-4 border-t border-[#272727] px-5 py-3 text-sm text-[#7b7b7b]"
-				>
-					<button
-						type="button"
-						class={`inline-flex cursor-pointer items-center gap-1 border-0 bg-transparent p-0 ${hideInterpreted ? "text-[#f0efee]" : "text-[#7b7b7b]"}`}
-						onclick={() => (hideInterpreted = !hideInterpreted)}
-					>
-						<EyeClosed
-							size={16}
-							strokeWidth={1.5}
-							class="shrink-0"
-						/>
-						<span>Hide interpreted</span>
-					</button>
-					<span>Time: {formatMissionTime(timeState.value)}</span>
-				</div>
-			</section>
-		{/if}
+			{/key}
+		</div>
 	</main>
 
 	{#if tab === "graphs"}
@@ -486,7 +596,7 @@
 				onclick={toggleFreeze}
 			>
 				<Snowflake size={16} strokeWidth={1.5} class="shrink-0" />
-				<span>Freeze</span>
+				<span>{frozenState.value ? "Unfreeze" : "Freeze"}</span>
 			</button>
 		</div>
 		<div

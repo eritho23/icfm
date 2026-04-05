@@ -7,6 +7,7 @@
 	let {
 		liveState,
 		timeState,
+		timeSeriesState,
 		altState,
 		speedState,
 		attState,
@@ -15,6 +16,7 @@
 	} = $props<{
 		liveState: { value: boolean };
 		timeState: { value: number };
+		timeSeriesState: { values: number[] };
 		altState: { values: number[] };
 		speedState: { values: number[] };
 		attState: { roll: number[]; pitch: number[]; yaw: number[] };
@@ -29,49 +31,49 @@
 			key: "alt",
 			label: "Altitude",
 			color: "#1f77b4",
-			get: () => altState.values.at(-1),
+			series: () => altState.values,
 		},
 		{
 			key: "speed",
 			label: "Speed",
 			color: "#2ca02c",
-			get: () => speedState.values.at(-1),
+			series: () => speedState.values,
 		},
 		{
 			key: "roll",
 			label: "Roll",
 			color: "#d62728",
-			get: () => attState.roll.at(-1),
+			series: () => attState.roll,
 		},
 		{
 			key: "pitch",
 			label: "Pitch",
 			color: "#ff7f0e",
-			get: () => attState.pitch.at(-1),
+			series: () => attState.pitch,
 		},
 		{
 			key: "yaw",
 			label: "Yaw",
 			color: "#9467bd",
-			get: () => attState.yaw.at(-1),
+			series: () => attState.yaw,
 		},
 		{
 			key: "ax",
 			label: "a_x",
 			color: "#1f77b4",
-			get: () => accState.x.at(-1),
+			series: () => accState.x,
 		},
 		{
 			key: "ay",
 			label: "a_y",
 			color: "#2ca02c",
-			get: () => accState.y.at(-1),
+			series: () => accState.y,
 		},
 		{
 			key: "az",
 			label: "a_z",
 			color: "#d62728",
-			get: () => accState.z.at(-1),
+			series: () => accState.z,
 		},
 	] as const;
 
@@ -144,6 +146,7 @@
 		let charts: Chart[] = [];
 		let intervalId = 0;
 		let cancelled = false;
+		let lastLen = 0;
 
 		void tick().then(() => {
 			if (cancelled) return;
@@ -158,26 +161,29 @@
 				createChart(els[i]!, p.label, p.color),
 			);
 
-			let lastTime = -1;
-			intervalId = window.setInterval(() => {
-				if (!liveState.value || frozenState.value) return;
-				const t = timeState.value;
-				if (!Number.isFinite(t) || t === lastTime) return;
-				lastTime = t;
-
+			const syncAllCharts = () => {
+				const allTimes = timeSeriesState.values;
+				const start = Math.max(0, allTimes.length - maxPoints);
+				const labels = allTimes
+					.slice(start)
+					.map((t: number) => t.toFixed(1));
 				panels.forEach((p, i) => {
-					const v = p.get();
-					if (v === undefined) return;
+					const values = p.series();
 					const chart = charts[i];
-					chart.data.labels?.push(t.toFixed(1));
-					chart.data.datasets[0].data.push(v);
-					if ((chart.data.labels?.length ?? 0) > maxPoints) {
-						chart.data.labels?.shift();
-						const ds = chart.data.datasets[0].data as number[];
-						ds.shift();
-					}
+					chart.data.labels = labels.slice();
+					chart.data.datasets[0].data = values.slice(start) as number[];
 					chart.update("none");
 				});
+				lastLen = allTimes.length;
+			};
+
+			syncAllCharts();
+
+			intervalId = window.setInterval(() => {
+				if (!liveState.value || frozenState.value) return;
+				const len = timeSeriesState.values.length;
+				if (len <= lastLen) return;
+				syncAllCharts();
 			}, 120);
 		});
 
@@ -189,7 +195,7 @@
 	});
 </script>
 
-<div class="grid min-h-0 flex-1 grid-cols-1 gap-6 sm:grid-cols-2">
+<div class="grid grid-cols-1 gap-6 sm:grid-cols-2">
 	{#each panels as p, i}
 		<div
 			class="flex min-h-[200px] min-w-0 flex-col rounded-lg bg-[#e7e6e4] px-14 py-10"
