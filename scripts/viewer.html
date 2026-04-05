@@ -4,25 +4,38 @@
 <meta charset="utf-8">
 <title>ICFM Log Viewer</title>
 <style>
-html, body { margin:0; padding:0; height:100%; overflow:hidden; font:12px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; background:#fafafa; color:#111; }
+@font-face { font-family:"Berlin Grotesk"; src:url("font/berlin-grotesk/BerlinGrotesk-Regular.otf") format("opentype"); font-weight:400; font-style:normal; }
+@font-face { font-family:"Berlin Grotesk"; src:url("font/berlin-grotesk/BerlinGrotesk-Medium.otf") format("opentype"); font-weight:500; font-style:normal; }
+@font-face { font-family:"Berlin Grotesk"; src:url("font/berlin-grotesk/BerlinGrotesk-Bold.otf") format("opentype"); font-weight:700; font-style:normal; }
+
+:root {
+    --bg:#0D0D0D;
+    --text:#FFEBDF;
+    --primary:#2F7CB2;
+    --muted:#8A8A8A;
+    --panel:rgba(18,22,28,0.94);
+}
+
+html, body { margin:0; padding:0; height:100%; overflow:hidden; font:12px/1.4 "Berlin Grotesk",sans-serif; background:radial-gradient(circle at 20% 0%, #1a1a1a 0%, var(--bg) 48%); color:var(--text); }
 #view3d { width:100%; height:100%; position:relative; }
 #rocket3d { width:100%; height:100%; cursor:grab; }
 /* Bottom metrics bar */
-#metrics { position:absolute; bottom:0; left:0; right:0; display:flex; gap:12px; padding:6px 10px; background:rgba(250,250,250,0.95); border-top:1px solid #e0e0e0; overflow-x:auto; white-space:nowrap; pointer-events:none; }
+#metrics { position:absolute; bottom:0; left:0; right:0; display:flex; gap:12px; padding:6px 10px; background:rgba(13,13,13,0.95); overflow-x:auto; white-space:nowrap; pointer-events:none; backdrop-filter:blur(2px); }
 .group { display:flex; flex-direction:row; align-items:center; gap:6px; min-width:max-content; }
-.group h3 { margin:0; font-size:11px; font-weight:600; color:#555; }
+.group h3 { margin:0; font-size:11px; font-weight:700; color:var(--muted); }
 .metric { font-size:11px; display:flex; gap:2px; }
 .metric span:last-child { font-variant-numeric:tabular-nums; }
 /* Graph overlay */
-#graphOverlay { position:absolute; top:0; right:0; width:40%; height:100%; background:rgba(255,255,255,0.95); border-left:1px solid #e0e0e0; padding:16px; box-sizing:border-box; overflow:auto; display:none; flex-direction:column; z-index:5; }
+#graphOverlay { position:absolute; top:0; right:0; width:40%; height:100%; background:rgba(13,13,13,0.96); padding:16px; box-sizing:border-box; overflow:auto; display:none; flex-direction:column; z-index:5; }
 .chartBox { height:150px; margin-bottom:16px; }
 .chartBox canvas { width:100%; height:100%; }
 /* Toggle button */
-#toggleGraphs { position:absolute; bottom:8px; right:8px; z-index:6; padding:6px 10px; background:#fafafa; border:1px solid #e0e0e0; cursor:pointer; font-size:12px; font-weight:600; border-radius:4px; }
-#commandPanel { position:absolute; top:8px; left:8px; z-index:6; display:flex; gap:8px; align-items:center; background:rgba(250,250,250,0.95); border:1px solid #e0e0e0; border-radius:6px; padding:8px; }
-.cmdBtn { padding:6px 10px; background:#fafafa; border:1px solid #cfcfcf; cursor:pointer; font-size:12px; font-weight:600; border-radius:4px; }
-.cmdBtn:hover { background:#f0f0f0; }
-#cmdStatus { font-size:11px; color:#555; min-width:120px; }
+#toggleGraphs { position:absolute; bottom:8px; right:8px; z-index:6; padding:6px 10px; background:var(--primary); color:var(--text); border:none; cursor:pointer; font-size:12px; font-weight:700; border-radius:4px; }
+#toggleGraphs:hover { filter:brightness(1.06); }
+#commandPanel { position:absolute; top:8px; left:8px; z-index:6; display:flex; gap:8px; align-items:center; background:var(--panel); border:none; border-radius:6px; padding:8px; }
+.cmdBtn { padding:6px 10px; background:var(--primary); color:var(--text); border:none; cursor:pointer; font-size:12px; font-weight:700; border-radius:4px; }
+.cmdBtn:hover { filter:brightness(1.06); }
+#cmdStatus { font-size:11px; color:var(--muted); min-width:120px; }
 </style>
 </head>
 <body>
@@ -97,9 +110,11 @@ overlay.style.display='none';
 overlay.style.flexDirection='column';
 
 // ── Charts
-Chart.defaults.font.size=11; Chart.defaults.color='#444';
+Chart.defaults.font.family='Berlin Grotesk, sans-serif';
+Chart.defaults.font.size=11;
+Chart.defaults.color='#FFEBDF';
 function makeDS(label,color){return{label,data:[],borderColor:color,backgroundColor:color+'33',borderWidth:1.5,pointRadius:0,tension:0.1};}
-function makeChart(id,datasets){return new Chart(document.getElementById(id),{type:'line',data:{labels:[],datasets},options:{animation:false,responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'top',align:'end',labels:{boxWidth:12,padding:4}}},scales:{x:{grid:{color:'#f0f0f0',drawBorder:false},ticks:{maxTicksLimit:8}},y:{grid:{color:'#f0f0f0',drawBorder:false},ticks:{maxTicksLimit:6}}}}});}
+function makeChart(id,datasets){return new Chart(document.getElementById(id),{type:'line',data:{labels:[],datasets},options:{animation:false,responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'top',align:'end',labels:{boxWidth:12,padding:4}}},scales:{x:{grid:{color:'rgba(80,80,80,0.35)',drawBorder:false},ticks:{maxTicksLimit:8}},y:{grid:{color:'rgba(80,80,80,0.35)',drawBorder:false},ticks:{maxTicksLimit:6}}}}});}
 const chartAlt=makeChart('chart_alt',[makeDS('alt','#1f77b4'),makeDS('speed','#2ca02c')]);
 const chartAtt=makeChart('chart_att',[makeDS('roll','#d62728'),makeDS('pitch','#ff7f0e'),makeDS('yaw','#9467bd')]);
 const chartAcc=makeChart('chart_acc',[makeDS('a_x','#1f77b4'),makeDS('a_y','#2ca02c'),makeDS('a_z','#d62728')]);
@@ -110,17 +125,17 @@ function pushChart(chart,t,vals){chart.data.labels.push(t.toFixed(1)); vals.forE
 // ── Three.js 3D Rocket ──
 const canvas3d=document.getElementById('rocket3d');
 const renderer=new THREE.WebGLRenderer({canvas:canvas3d,antialias:true});
-renderer.setClearColor(0xfafafa);
+renderer.setClearColor(0x0d0d0d);
 renderer.setPixelRatio(window.devicePixelRatio);
 
 const scene=new THREE.Scene();
 const camera=new THREE.PerspectiveCamera(40,2,0.1,100);
 
-scene.add(new THREE.AmbientLight(0xffffff,0.7));
+scene.add(new THREE.AmbientLight(0xffffff,0.45));
 const dLight=new THREE.DirectionalLight(0xffffff,1.2);
 dLight.position.set(3,6,4);
 scene.add(dLight);
-scene.add(new THREE.GridHelper(32,32,0xdddddd,0xeeeeee));
+scene.add(new THREE.GridHelper(32,32,0x2a2a2a,0x1a1a1a));
 
 // Rocket group gets firmware quaternion directly
 const rocketGroup=new THREE.Group();
@@ -132,12 +147,12 @@ rocketGroup.add(rocketModel);
 
 rocketModel.add(new THREE.Mesh(
     new THREE.CylinderGeometry(0.2,0.2,2.5,24),
-    new THREE.MeshStandardMaterial({color:0xcccccc,metalness:0.4,roughness:0.5})
+    new THREE.MeshStandardMaterial({color:0x3a3a3a,metalness:0.35,roughness:0.55})
 ));
 
 const nose=new THREE.Mesh(
     new THREE.ConeGeometry(0.2,0.7,24),
-    new THREE.MeshStandardMaterial({color:0x444466})
+    new THREE.MeshStandardMaterial({color:0x555555})
 );
 nose.position.y=1.6;
 rocketModel.add(nose);

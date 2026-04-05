@@ -15,7 +15,9 @@ typedef struct {
 
 extern f32 imu_sample_rate_hz;
 
-b32 imu_setup(f32 accel_avg_out[3]);
+b32 imu_init(void);
+b32 imu_calibrate(void); // blocks for 10s
+
 void imu_debug(void);
 b32 get_imu_data(imu_m *out);
 

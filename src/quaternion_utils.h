@@ -24,4 +24,6 @@ void quat_rotate_inv(const quat *q, const f32 v[3], f32 out[3]);
 // wx/wy/wz: body-frame angular rates, rad/s.
 void quat_propagate(quat *q, f32 wx, f32 wy, f32 wz, f32 dt);
 
+void quat_to_euler_deg(const quat *q, f32 *roll, f32 *pitch, f32 *yaw);
+
 #endif

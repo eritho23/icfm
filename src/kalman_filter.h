@@ -31,6 +31,7 @@ void kalman_filter_rotate_accel(f32 ax_b, f32 ay_b, f32 az_b);
 
 matrix* kalman_filter_get_z(void);
 const quat* kalman_filter_get_quat(void);
+void kalman_filter_get_euler_deg(f32 *roll, f32 *pitch, f32 *yaw);
 
 void kalman_filter_debug_print_csv_header(void);
 void kalman_filter_debug_print_csv_row(u32 t_ms, f32 wx, f32 wy, f32 wz, const matrix *state);

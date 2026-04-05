@@ -55,3 +55,19 @@ void quat_propagate(quat *q, f32 wx, f32 wy, f32 wz, f32 dt) {
     q->w=qn.w; q->x=qn.x; q->y=qn.y; q->z=qn.z;
     quat_normalise(q);
 }
+
+void quat_to_euler_deg(const quat *q, f32 *roll, f32 *pitch, f32 *yaw) {
+    f32 sinr_cosp = 2.0f * (q->w * q->x + q->y * q->z);
+    f32 cosr_cosp = 1.0f - 2.0f * (q->x * q->x + q->y * q->y);
+    *roll = atan2f(sinr_cosp, cosr_cosp) * (180.0f / M_PI);
+
+    f32 sinp = 2.0f * (q->w * q->y - q->z * q->x);
+    if (fabsf(sinp) >= 1.0f)
+        *pitch = copysignf(90.0f, sinp);
+    else
+        *pitch = asinf(sinp) * (180.0f / M_PI);
+
+    f32 siny_cosp = 2.0f * (q->w * q->z + q->x * q->y);
+    f32 cosy_cosp = 1.0f - 2.0f * (q->y * q->y + q->z * q->z);
+    *yaw = atan2f(siny_cosp, cosy_cosp) * (180.0f / M_PI);
+}

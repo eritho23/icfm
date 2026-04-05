@@ -179,6 +179,10 @@ matrix* kalman_filter_update(f32 dt, f32 wx, f32 wy, f32 wz) {
 matrix* kalman_filter_get_z(void) { return &z; }
 const quat* kalman_filter_get_quat(void) { return &q_ref; }
 
+void kalman_filter_get_euler_deg(f32 *roll, f32 *pitch, f32 *yaw) {
+    quat_to_euler_deg(&q_ref, roll, pitch, yaw);
+}
+
 void kalman_filter_debug_print_csv_header(void) {
     Serial.println("t_ms,wx,wy,wz,p_x,p_y,p_z,v_x,v_y,v_z,a_x,a_y,a_z,d_theta,d_alpha,d_beta,q_w,q_x,q_y,q_z");
 }

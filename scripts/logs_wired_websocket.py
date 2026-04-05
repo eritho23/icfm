@@ -155,7 +155,12 @@ async def telemetry_server():
         first_t_ms = None
         while True:
             line = (await reader.readline()).decode("utf-8", errors="replace").strip()
-            if not line or any(line.startswith(p) for p in HEADER_PREFIXES) or line.upper().startswith("ERR,"):
+            if not line:
+                continue
+
+            await broadcast(json.dumps({"type": "serial_raw", "line": line}))
+
+            if any(line.startswith(p) for p in HEADER_PREFIXES) or line.upper().startswith("ERR,"):
                 continue
             kind, row = parse_row(line)
             if kind is None or row is None:
