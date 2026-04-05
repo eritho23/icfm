@@ -1,131 +1,164 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
-  import { Chart, registerables } from 'chart.js'
+	import { onMount, tick } from 'svelte';
+	import { Chart, registerables } from 'chart.js';
 
-  Chart.register(...registerables)
+	Chart.register(...registerables);
 
-  let { liveState, timeState, altState, speedState, attState, accState, finState } = $props<{
-    liveState: { value: boolean }
-    timeState: { value: number }
-    altState: { values: number[] }
-    speedState: { values: number[] }
-    attState: { roll: number[]; pitch: number[]; yaw: number[] }
-    accState: { x: number[]; y: number[]; z: number[] }
-    finState: { fin0: number[]; fin1: number[]; fin2: number[]; fin3: number[] }
-  }>()
+	let {
+		liveState,
+		timeState,
+		altState,
+		speedState,
+		attState,
+		accState,
+		frozenState,
+	} = $props<{
+		liveState: { value: boolean };
+		timeState: { value: number };
+		altState: { values: number[] };
+		speedState: { values: number[] };
+		attState: { roll: number[]; pitch: number[]; yaw: number[] };
+		accState: { x: number[]; y: number[]; z: number[] };
+		frozenState: { value: boolean };
+	}>();
 
-  const maxPoints = 200
-  let altCanvas: HTMLCanvasElement | null = null
-  let attCanvas: HTMLCanvasElement | null = null
-  let accCanvas: HTMLCanvasElement | null = null
-  let finCanvas: HTMLCanvasElement | null = null
+	const maxPoints = 200;
 
-  const createChart = (canvas: HTMLCanvasElement, datasets: { label: string; color: string }[]) =>
-    new Chart(canvas, {
-      type: 'line',
-      data: {
-        labels: [],
-        datasets: datasets.map((dataset) => ({
-          label: dataset.label,
-          data: [],
-          borderColor: dataset.color,
-          backgroundColor: `${dataset.color}33`,
-          borderWidth: 1.5,
-          pointRadius: 0,
-          tension: 0.1,
-        })),
-      },
-      options: {
-        animation: false,
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: { legend: { position: 'top', align: 'end', labels: { boxWidth: 12, padding: 4 } } },
-        scales: {
-          x: { grid: { color: 'rgba(128,128,128,0.2)' }, ticks: { maxTicksLimit: 8 } },
-          y: { grid: { color: 'rgba(128,128,128,0.2)' }, ticks: { maxTicksLimit: 6 } },
-        },
-      },
-    })
+	const panels = [
+		{ key: 'alt', label: 'Altitude', color: '#1f77b4', get: () => altState.values.at(-1) },
+		{ key: 'speed', label: 'Speed', color: '#2ca02c', get: () => speedState.values.at(-1) },
+		{ key: 'roll', label: 'Roll', color: '#d62728', get: () => attState.roll.at(-1) },
+		{ key: 'pitch', label: 'Pitch', color: '#ff7f0e', get: () => attState.pitch.at(-1) },
+		{ key: 'yaw', label: 'Yaw', color: '#9467bd', get: () => attState.yaw.at(-1) },
+		{ key: 'ax', label: 'a_x', color: '#1f77b4', get: () => accState.x.at(-1) },
+		{ key: 'ay', label: 'a_y', color: '#2ca02c', get: () => accState.y.at(-1) },
+		{ key: 'az', label: 'a_z', color: '#d62728', get: () => accState.z.at(-1) },
+	] as const;
 
-  onMount(() => {
-    if (!altCanvas || !attCanvas || !accCanvas || !finCanvas) return
+	let canvasEls = $state<(HTMLCanvasElement | null)[]>(Array.from({ length: 8 }, () => null));
 
-    Chart.defaults.font.family = 'Berlin Grotesk, ui-sans-serif, sans-serif'
-    Chart.defaults.font.size = 11
+	function createChart(canvas: HTMLCanvasElement, label: string, color: string) {
+		return new Chart(canvas, {
+			type: 'line',
+			data: {
+				labels: [] as string[],
+				datasets: [
+					{
+						label,
+						data: [] as number[],
+						borderColor: color,
+						backgroundColor: `${color}33`,
+						borderWidth: 1.5,
+						pointRadius: 0,
+						tension: 0.1,
+					},
+				],
+			},
+			options: {
+				animation: false,
+				responsive: true,
+				maintainAspectRatio: false,
+				plugins: {
+					legend: { display: false },
+					title: {
+						display: true,
+						text: label,
+						color: '#0d0d0d',
+						font: { family: 'Berlin Grotesk, sans-serif', size: 12, weight: 500 },
+						padding: { bottom: 8 },
+					},
+				},
+				scales: {
+					x: {
+						grid: { color: 'rgba(13,13,13,0.08)' },
+						ticks: { color: '#7b7b7b', maxTicksLimit: 6, font: { size: 10 } },
+					},
+					y: {
+						grid: { color: 'rgba(13,13,13,0.08)' },
+						ticks: { color: '#7b7b7b', maxTicksLimit: 5, font: { size: 10 } },
+					},
+				},
+			},
+		});
+	}
 
-    const altChart = createChart(altCanvas, [
-      { label: 'alt', color: '#1f77b4' },
-      { label: 'speed', color: '#2ca02c' },
-    ])
-    const attChart = createChart(attCanvas, [
-      { label: 'roll', color: '#d62728' },
-      { label: 'pitch', color: '#ff7f0e' },
-      { label: 'yaw', color: '#9467bd' },
-    ])
-    const accChart = createChart(accCanvas, [
-      { label: 'a_x', color: '#1f77b4' },
-      { label: 'a_y', color: '#2ca02c' },
-      { label: 'a_z', color: '#d62728' },
-    ])
-    const finChart = createChart(finCanvas, [
-      { label: 'fin0', color: '#1f77b4' },
-      { label: 'fin1', color: '#2ca02c' },
-      { label: 'fin2', color: '#ff7f0e' },
-      { label: 'fin3', color: '#d62728' },
-    ])
+	onMount(() => {
+		let charts: Chart[] = [];
+		let intervalId = 0;
+		let cancelled = false;
 
-    let lastTime = -1
-    const interval = window.setInterval(() => {
-      if (!liveState.value) return
-      const t = timeState.value
-      if (!Number.isFinite(t) || t === lastTime) return
-      lastTime = t
+		void tick().then(() => {
+			if (cancelled) return;
+			const els = canvasEls;
+			if (els.some((c) => !c)) return;
 
-      const apply = (chart: Chart, values: number[]) => {
-        chart.data.labels?.push(t.toFixed(1))
-        values.forEach((value, index) => chart.data.datasets[index].data.push(value))
-        if ((chart.data.labels?.length ?? 0) > maxPoints) {
-          chart.data.labels?.shift()
-          const dataSets = chart.data.datasets as Array<{ data: unknown[] }>
-          dataSets.forEach((dataset) => dataset.data.shift())
-        }
-        chart.update('none')
-      }
+			Chart.defaults.font.family = 'Berlin Grotesk, ui-sans-serif, sans-serif';
+			Chart.defaults.font.size = 11;
 
-      const altLast = altState.values.at(-1)
-      const speedLast = speedState.values.at(-1)
-      if (altLast !== undefined && speedLast !== undefined) apply(altChart, [altLast, speedLast])
+			charts = panels.map((p, i) => createChart(els[i]!, p.label, p.color));
 
-      const roll = attState.roll.at(-1)
-      const pitch = attState.pitch.at(-1)
-      const yaw = attState.yaw.at(-1)
-      if (roll !== undefined && pitch !== undefined && yaw !== undefined) apply(attChart, [roll, pitch, yaw])
+			let lastTime = -1;
+			intervalId = window.setInterval(() => {
+				if (!liveState.value || frozenState.value) return;
+				const t = timeState.value;
+				if (!Number.isFinite(t) || t === lastTime) return;
+				lastTime = t;
 
-      const ax = accState.x.at(-1)
-      const ay = accState.y.at(-1)
-      const az = accState.z.at(-1)
-      if (ax !== undefined && ay !== undefined && az !== undefined) apply(accChart, [ax, ay, az])
+				panels.forEach((p, i) => {
+					const v = p.get();
+					if (v === undefined) return;
+					const chart = charts[i];
+					chart.data.labels?.push(t.toFixed(1));
+					chart.data.datasets[0].data.push(v);
+					if ((chart.data.labels?.length ?? 0) > maxPoints) {
+						chart.data.labels?.shift();
+						const ds = chart.data.datasets[0].data as number[];
+						ds.shift();
+					}
+					chart.update('none');
+				});
+			}, 120);
+		});
 
-      const f0 = finState.fin0.at(-1)
-      const f1 = finState.fin1.at(-1)
-      const f2 = finState.fin2.at(-1)
-      const f3 = finState.fin3.at(-1)
-      if (f0 !== undefined && f1 !== undefined && f2 !== undefined && f3 !== undefined) apply(finChart, [f0, f1, f2, f3])
-    }, 120)
-
-    return () => {
-      window.clearInterval(interval)
-      altChart.destroy()
-      attChart.destroy()
-      accChart.destroy()
-      finChart.destroy()
-    }
-  })
+		return () => {
+			cancelled = true;
+			window.clearInterval(intervalId);
+			charts.forEach((c) => c.destroy());
+		};
+	});
 </script>
 
-<div class="grid gap-3 p-3 md:grid-cols-2">
-  <div class="h-56 rounded-xl border border-slate-300 bg-white p-3"><canvas bind:this={altCanvas} class="h-full w-full"></canvas></div>
-  <div class="h-56 rounded-xl border border-slate-300 bg-white p-3"><canvas bind:this={attCanvas} class="h-full w-full"></canvas></div>
-  <div class="h-56 rounded-xl border border-slate-300 bg-white p-3"><canvas bind:this={accCanvas} class="h-full w-full"></canvas></div>
-  <div class="h-56 rounded-xl border border-slate-300 bg-white p-3"><canvas bind:this={finCanvas} class="h-full w-full"></canvas></div>
+<div class="telemetry-grid">
+	{#each panels as p, i}
+		<div class="chart-card">
+			<canvas bind:this={canvasEls[i]} class="chart-canvas"></canvas>
+		</div>
+	{/each}
 </div>
+
+<style>
+	.telemetry-grid {
+		display: grid;
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+		grid-template-rows: repeat(4, minmax(200px, 1fr));
+		gap: 16px;
+		min-height: 0;
+		flex: 1;
+	}
+
+	.chart-card {
+		min-height: 200px;
+		border-radius: 8px;
+		background: #e5e3e0;
+		padding: 12px;
+		display: flex;
+		flex-direction: column;
+		min-width: 0;
+	}
+
+	.chart-canvas {
+		flex: 1;
+		min-height: 0;
+		width: 100%;
+	}
+</style>

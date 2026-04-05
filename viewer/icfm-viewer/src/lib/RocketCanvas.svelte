@@ -16,7 +16,7 @@
     if (!host) return
 
     const renderer = new THREE.WebGLRenderer({ canvas, antialias: true })
-    renderer.setClearColor(0xeef4fb)
+    renderer.setClearColor(0xf0efee)
     renderer.setPixelRatio(window.devicePixelRatio)
 
     const scene = new THREE.Scene()
@@ -179,6 +179,6 @@
   })
 </script>
 
-<div class="h-full w-full overflow-hidden bg-slate-50">
+<div class="h-full w-full overflow-hidden bg-[#F0EFEE]">
   <canvas bind:this={canvasEl} class="block h-full w-full cursor-grab"></canvas>
 </div>

@@ -25,6 +25,7 @@
 	},
 	"dependencies": {
 		"chart.js": "^4.5.1",
+		"lucide-svelte": "^1.0.1",
 		"three": "^0.183.2"
 	}
 }
