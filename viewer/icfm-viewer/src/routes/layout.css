@@ -1,0 +1,41 @@
+@import 'tailwindcss';
+
+@font-face {
+  font-family: 'Berlin Grotesk';
+  src: url('/berlin-grotesk/BerlinGrotesk-Regular.otf') format('opentype');
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Berlin Grotesk';
+  src: url('/berlin-grotesk/BerlinGrotesk-Medium.otf') format('opentype');
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Berlin Grotesk';
+  src: url('/berlin-grotesk/BerlinGrotesk-Bold.otf') format('opentype');
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+}
+
+@layer base {
+  html,
+  body,
+  #app {
+    height: 100%;
+  }
+
+  body {
+    margin: 0;
+    font-family: 'Berlin Grotesk', 'Avenir Next', 'Segoe UI', sans-serif;
+    background:
+      radial-gradient(1100px 600px at 15% 0%, #dbe7f2 0%, #f4f8fc 55%),
+      radial-gradient(900px 500px at 95% 100%, #dce9f6 0%, #f4f8fc 58%);
+  }
+}
