@@ -48,20 +48,75 @@
     rocketGroup.add(rocketModel)
 
     rocketModel.add(new THREE.Mesh(
-      new THREE.CylinderGeometry(0.2, 0.2, 2.5, 24),
+      new THREE.CylinderGeometry(0.17, 0.17, 2.5, 28),
       new THREE.MeshStandardMaterial({ color: 0x3a3a3a, metalness: 0.35, roughness: 0.55 }),
     ))
 
+    const noseProfile: THREE.Vector2[] = []
+    const noseHeight = 0.72
+    const noseRadius = 0.17
+    for (let i = 0; i <= 16; i += 1) {
+      const t = i / 16
+      const y = noseHeight * t
+      const x = noseRadius * (1 - Math.pow(t, 1.55))
+      noseProfile.push(new THREE.Vector2(Math.max(0.0001, x), y))
+    }
+    noseProfile.push(new THREE.Vector2(0.0001, noseHeight + 0.01))
+
     const nose = new THREE.Mesh(
-      new THREE.ConeGeometry(0.2, 0.7, 24),
-      new THREE.MeshStandardMaterial({ color: 0x555555 }),
+      new THREE.LatheGeometry(noseProfile, 36),
+      new THREE.MeshStandardMaterial({ color: 0x555555, metalness: 0.25, roughness: 0.6 }),
     )
-    nose.position.y = 1.6
+    nose.position.y = 1.25
     rocketModel.add(nose)
 
-    const finColors = [0x6095eb, 0x60eb95, 0xebc060, 0xeb6060]
+    const finLabels = ['A', 'B', 'C', 'D']
+    const finColor = 0x7b7b7b
     const finMeshes: THREE.Mesh[] = []
     const finScale = 3
+
+    const makeFinLabel = (label: string) => {
+      const canvas = document.createElement('canvas')
+      canvas.width = 64
+      canvas.height = 64
+      const ctx = canvas.getContext('2d')
+      if (!ctx) return null
+      ctx.clearRect(0, 0, canvas.width, canvas.height)
+      ctx.font = '600 34px Berlin Grotesk, sans-serif'
+      ctx.fillStyle = '#2c2c2c'
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'middle'
+      ctx.fillText(label, 32, 34)
+
+      const texture = new THREE.CanvasTexture(canvas)
+      texture.needsUpdate = true
+      texture.generateMipmaps = false
+      texture.minFilter = THREE.LinearFilter
+      texture.magFilter = THREE.LinearFilter
+
+      const frontMaterial = new THREE.MeshBasicMaterial({
+        map: texture,
+        transparent: true,
+        side: THREE.FrontSide,
+        alphaTest: 0.3,
+        depthWrite: false,
+        polygonOffset: true,
+        polygonOffsetFactor: -1,
+        polygonOffsetUnits: -1,
+      })
+      const backMaterial = frontMaterial.clone()
+
+      const labelGroup = new THREE.Group()
+      const frontLabel = new THREE.Mesh(new THREE.PlaneGeometry(0.16, 0.16), frontMaterial)
+      const backLabel = new THREE.Mesh(new THREE.PlaneGeometry(0.16, 0.16), backMaterial)
+      backLabel.rotation.y = Math.PI
+      frontLabel.position.z = 0.003
+      backLabel.position.z = -0.003
+
+      labelGroup.add(frontLabel)
+      labelGroup.add(backLabel)
+      return labelGroup
+    }
 
     for (let i = 0; i < 4; i += 1) {
       const orientGroup = new THREE.Group()
@@ -69,20 +124,25 @@
       rocketModel.add(orientGroup)
 
       const hingeGroup = new THREE.Group()
-      hingeGroup.position.set(0.2, -0.8, 0)
+      hingeGroup.position.set(0.17, -0.8, 0)
       orientGroup.add(hingeGroup)
 
       const shape = new THREE.Shape()
       shape.moveTo(0, 0)
-      shape.lineTo(0.38, -0.15)
-      shape.lineTo(0.38, -0.6)
-      shape.lineTo(0, -0.45)
+      shape.lineTo(0.3, -0.12)
+      shape.lineTo(0.3, -0.48)
+      shape.lineTo(0, -0.36)
       shape.closePath()
 
       const finMesh = new THREE.Mesh(
         new THREE.ShapeGeometry(shape),
-        new THREE.MeshStandardMaterial({ color: finColors[i], side: THREE.DoubleSide }),
+        new THREE.MeshStandardMaterial({ color: finColor, side: THREE.DoubleSide, metalness: 0.2, roughness: 0.7 }),
       )
+      const finLabel = makeFinLabel(finLabels[i])
+      if (finLabel) {
+        finLabel.position.set(0.16, -0.24, 0)
+        finMesh.add(finLabel)
+      }
       finMeshes.push(finMesh)
       hingeGroup.add(finMesh)
     }
@@ -115,7 +175,7 @@
 
     const onWheel = (event: WheelEvent) => {
       event.preventDefault()
-      camRadius -= event.deltaY * 0.01
+      camRadius += event.deltaY * 0.01
       camRadius = Math.max(2, Math.min(12, camRadius))
     }
 
@@ -171,8 +231,15 @@
         if (obj instanceof THREE.Mesh) {
           obj.geometry.dispose()
           const material = obj.material
-          if (Array.isArray(material)) material.forEach((item) => item.dispose())
-          else material.dispose()
+          if (Array.isArray(material)) {
+            material.forEach((item) => {
+              item.map?.dispose()
+              item.dispose()
+            })
+          } else {
+            material.map?.dispose()
+            material.dispose()
+          }
         }
       })
     }

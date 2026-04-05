@@ -44,3 +44,18 @@
 		font-family: 'Roboto Mono', ui-monospace, monospace;
 	}
 }
+
+@layer components {
+	.link {
+		@apply relative inline-block transition-all duration-500;
+	}
+
+	.link::after {
+		content: '';
+		@apply absolute left-0 -bottom-px h-[3px] w-full origin-bottom-right scale-x-0 bg-current transition-transform duration-300 ease-in-out;
+	}
+
+	.link:hover::after {
+		@apply origin-bottom-left scale-x-100;
+	}
+}

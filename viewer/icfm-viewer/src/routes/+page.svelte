@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { onDestroy, onMount, tick } from "svelte";
 	import EyeClosed from "lucide-svelte/icons/eye-closed";
+	import ChevronsLeftRight from "lucide-svelte/icons/chevrons-left-right";
+	import ChevronsRightLeft from "lucide-svelte/icons/chevrons-right-left";
 	import PlugZap from "lucide-svelte/icons/plug-zap";
 	import RefreshCcw from "lucide-svelte/icons/refresh-ccw";
 	import Snowflake from "lucide-svelte/icons/snowflake";
@@ -33,6 +35,8 @@
 	};
 
 	type CtrlData = { fin0: number; fin1: number; fin2: number; fin3: number };
+	type Tab = "space" | "graphs" | "serial";
+	type WsState = "connecting" | "connected" | "disconnected" | "error";
 
 	type TelemetryMessage =
 		| { type: "serial_raw"; line?: string }
@@ -67,11 +71,37 @@
 	] as const;
 
 	const maxSamples = 1200;
+	const serialMaxChars = 200_000;
+	const websocketUrl = "ws://localhost:8765";
+	const navTabs: Array<{ id: Tab; label: string }> = [
+		{ id: "space", label: "Space" },
+		{ id: "graphs", label: "Graphs" },
+		{ id: "serial", label: "Serial" },
+	];
+	const kalmanMetricKeys = [
+		"p_x",
+		"p_y",
+		"p_z",
+		"v_x",
+		"v_y",
+		"v_z",
+		"a_x",
+		"a_y",
+		"a_z",
+		"wx",
+		"wy",
+		"wz",
+		"d_theta",
+		"d_alpha",
+		"d_beta",
+		"q_w",
+		"q_x",
+		"q_y",
+		"q_z",
+	] as const;
 
-	let tab = $state<"space" | "graphs" | "serial">("space");
-	let wsState = $state<"connecting" | "connected" | "disconnected" | "error">(
-		"connecting",
-	);
+	let tab = $state<Tab>("space");
+	let wsState = $state<WsState>("connecting");
 	let commandStatus = $state("Awaiting command");
 	let serialText = $state("");
 	let metrics = $state<Metrics>(
@@ -79,6 +109,7 @@
 	);
 	let serialViewport = $state<HTMLDivElement | null>(null);
 	let hideInterpreted = $state(false);
+	let metricsExpanded = $state(false);
 
 	const liveState = { value: false };
 	const timeState = { value: 0 };
@@ -91,7 +122,11 @@
 		pitch: [] as number[],
 		yaw: [] as number[],
 	};
-	const accState = { x: [] as number[], y: [] as number[], z: [] as number[] };
+	const accState = {
+		x: [] as number[],
+		y: [] as number[],
+		z: [] as number[],
+	};
 	const finState = {
 		fin0: [] as number[],
 		fin1: [] as number[],
@@ -101,6 +136,122 @@
 	const frozenState = { value: false };
 
 	let ws: WebSocket | null = null;
+
+	function setConnectionState(state: WsState) {
+		wsState = state;
+		liveState.value = state === "connected";
+	}
+
+	function appendSerialLine(line: string) {
+		const next = serialText ? `${serialText}\n${line}` : line;
+		serialText =
+			next.length > serialMaxChars
+				? next.slice(next.length - serialMaxChars)
+				: next;
+	}
+
+	function updateKalmanMetrics(data: KalmanData) {
+		const nextMetrics = { ...metrics };
+		for (const key of kalmanMetricKeys) {
+			nextMetrics[key] = data[key].toFixed(2);
+		}
+		metrics = nextMetrics;
+	}
+
+	function handleKalmanData(data: KalmanData) {
+		timeState.value = data.t_s;
+		updateKalmanMetrics(data);
+
+		const speed = Math.hypot(data.v_x, data.v_y, data.v_z);
+		const [roll, pitch, yaw] = quatToEuler(
+			data.q_w,
+			data.q_x,
+			data.q_y,
+			data.q_z,
+		);
+
+		pushLimited(altState.values, data.p_z);
+		pushLimited(speedState.values, speed);
+		pushLimited(attState.roll, roll);
+		pushLimited(attState.pitch, pitch);
+		pushLimited(attState.yaw, yaw);
+		pushLimited(accState.x, data.a_x);
+		pushLimited(accState.y, data.a_y);
+		pushLimited(accState.z, data.a_z);
+
+		quaternionState.w = data.q_w;
+		quaternionState.x = data.q_x;
+		quaternionState.y = data.q_y;
+		quaternionState.z = data.q_z;
+	}
+
+	function handleControlData(data: CtrlData) {
+		metrics = {
+			...metrics,
+			fin0: data.fin0.toFixed(1),
+			fin1: data.fin1.toFixed(1),
+			fin2: data.fin2.toFixed(1),
+			fin3: data.fin3.toFixed(1),
+		};
+		finAnglesState.values = [data.fin0, data.fin1, data.fin2, data.fin3];
+		pushLimited(finState.fin0, data.fin0);
+		pushLimited(finState.fin1, data.fin1);
+		pushLimited(finState.fin2, data.fin2);
+		pushLimited(finState.fin3, data.fin3);
+	}
+
+	function handleTelemetryMessage(msg: TelemetryMessage) {
+		if (msg.type === "serial_raw") {
+			if (frozenState.value) return;
+			appendSerialLine(String(msg.line ?? ""));
+			return;
+		}
+
+		if (msg.type === "command_ack") {
+			commandStatus = msg.ok
+				? `Command ${msg.cmd ?? "unknown"} accepted`
+				: `Command failed: ${msg.reason ?? "unknown_error"}`;
+			return;
+		}
+
+		if (frozenState.value) return;
+
+		if (msg.type === "kalman") {
+			handleKalmanData(msg.data);
+			return;
+		}
+
+		handleControlData(msg.data);
+	}
+
+	function connectWebSocket() {
+		ws?.close();
+		setConnectionState("connecting");
+
+		const socket = new WebSocket(websocketUrl);
+		ws = socket;
+
+		socket.onopen = () => {
+			if (ws !== socket) return;
+			setConnectionState("connected");
+		};
+
+		socket.onclose = () => {
+			if (ws !== socket) return;
+			setConnectionState("disconnected");
+		};
+
+		socket.onerror = () => {
+			if (ws !== socket) return;
+			setConnectionState("error");
+		};
+
+		socket.onmessage = (event) => {
+			if (ws !== socket) return;
+			const msg = JSON.parse(event.data) as TelemetryMessage;
+			handleTelemetryMessage(msg);
+		};
+	}
 
 	function isInterpretedLine(line: string) {
 		const t = line.trim();
@@ -154,108 +305,11 @@
 		frozenState.value = !frozenState.value;
 	}
 
+	const dockButtonClass =
+		"inline-flex h-8 cursor-pointer items-center gap-1 rounded-[4px] border-0 bg-transparent px-3 text-sm font-medium transition-colors hover:bg-[#272727]";
+
 	onMount(() => {
-		ws = new WebSocket("ws://localhost:8765");
-
-		ws.onopen = () => {
-			wsState = "connected";
-			liveState.value = true;
-		};
-
-		ws.onclose = () => {
-			wsState = "disconnected";
-			liveState.value = false;
-		};
-
-		ws.onerror = () => {
-			wsState = "error";
-			liveState.value = false;
-		};
-
-		ws.onmessage = (event) => {
-			const msg = JSON.parse(event.data) as TelemetryMessage;
-
-			if (msg.type === "serial_raw") {
-				if (frozenState.value) return;
-				const line = String(msg.line ?? "");
-				const next = serialText ? `${serialText}\n${line}` : line;
-				const maxChars = 200_000;
-				serialText =
-					next.length > maxChars ? next.slice(next.length - maxChars) : next;
-				return;
-			}
-
-			if (msg.type === "command_ack") {
-				commandStatus = msg.ok
-					? `Command ${msg.cmd ?? "unknown"} accepted`
-					: `Command failed: ${msg.reason ?? "unknown_error"}`;
-				return;
-			}
-
-			if (frozenState.value) return;
-
-			if (msg.type === "kalman") {
-				const d = msg.data;
-				timeState.value = d.t_s;
-
-				const nextMetrics = { ...metrics };
-				for (const key of [
-					"p_x",
-					"p_y",
-					"p_z",
-					"v_x",
-					"v_y",
-					"v_z",
-					"a_x",
-					"a_y",
-					"a_z",
-					"wx",
-					"wy",
-					"wz",
-					"d_theta",
-					"d_alpha",
-					"d_beta",
-					"q_w",
-					"q_x",
-					"q_y",
-					"q_z",
-				] as const) {
-					nextMetrics[key] = d[key].toFixed(2);
-				}
-				metrics = nextMetrics;
-
-				const speed = Math.hypot(d.v_x, d.v_y, d.v_z);
-				const [roll, pitch, yaw] = quatToEuler(d.q_w, d.q_x, d.q_y, d.q_z);
-				pushLimited(altState.values, d.p_z);
-				pushLimited(speedState.values, speed);
-				pushLimited(attState.roll, roll);
-				pushLimited(attState.pitch, pitch);
-				pushLimited(attState.yaw, yaw);
-				pushLimited(accState.x, d.a_x);
-				pushLimited(accState.y, d.a_y);
-				pushLimited(accState.z, d.a_z);
-
-				quaternionState.w = d.q_w;
-				quaternionState.x = d.q_x;
-				quaternionState.y = d.q_y;
-				quaternionState.z = d.q_z;
-				return;
-			}
-
-			const d = msg.data;
-			metrics = {
-				...metrics,
-				fin0: d.fin0.toFixed(1),
-				fin1: d.fin1.toFixed(1),
-				fin2: d.fin2.toFixed(1),
-				fin3: d.fin3.toFixed(1),
-			};
-			finAnglesState.values = [d.fin0, d.fin1, d.fin2, d.fin3];
-			pushLimited(finState.fin0, d.fin0);
-			pushLimited(finState.fin1, d.fin1);
-			pushLimited(finState.fin2, d.fin2);
-			pushLimited(finState.fin3, d.fin3);
-		};
+		connectWebSocket();
 	});
 
 	onDestroy(() => {
@@ -273,54 +327,82 @@
 	});
 </script>
 
-<div class="page">
-	<header class="page-header">
-		<img
-			src="/assets/icfm-text-logo.svg"
-			alt="ICFM"
-			class="brand-logo"
-			width="55"
-			height="16"
-		/>
-		<nav class="top-nav" aria-label="Primary">
-			<button
-				type="button"
-				class="nav-link"
-				class:nav-link--active={tab === "space"}
-				onclick={() => (tab = "space")}>Space</button
-			>
-			<button
-				type="button"
-				class="nav-link"
-				class:nav-link--active={tab === "graphs"}
-				onclick={() => (tab = "graphs")}>Graphs</button
-			>
-			<button
-				type="button"
-				class="nav-link"
-				class:nav-link--active={tab === "serial"}
-				onclick={() => (tab = "serial")}>Serial</button
-			>
-		</nav>
+<div
+	class="relative flex min-h-dvh flex-col bg-[#f0efee] px-4 pb-44 text-sm text-[#0d0d0d] sm:px-10 sm:pb-36"
+>
+	<header class="fixed top-0 right-0 left-0 z-30 bg-[#f0efee] px-4 sm:px-10">
+		<div
+			class="mx-auto flex w-full max-w-[600px] shrink-0 justify-between pt-8 pb-4"
+		>
+			<img
+				src="/assets/icfm-text-logo.svg"
+				alt="ICFM"
+				class="block h-4 w-auto"
+				width="55"
+				height="16"
+			/>
+			<nav class="flex items-center gap-8" aria-label="Primary">
+				{#each navTabs as navTab}
+					<button
+						type="button"
+						class={`link cursor-pointer border-0 bg-transparent p-0 text-sm font-normal ${tab === navTab.id ? "text-[#7b7b7b]" : "text-[#0d0d0d]"}`}
+						onclick={() => (tab = navTab.id)}>{navTab.label}</button
+					>
+				{/each}
+			</nav>
+		</div>
 	</header>
 
-	<main class="page-main">
+	<main class="flex min-h-0 flex-1 flex-col pt-20">
 		{#if tab === "space"}
-			<section class="panel-3d">
+			<section class="relative min-h-[480px] flex-1 overflow-hidden rounded-lg bg-[#f0efee]">
 				<RocketCanvas {finAnglesState} {quaternionState} />
-				<div class="metrics-strip">
-					<div class="metrics-scroll">
-						{#each metricKeys as key}
-							<div class="metric-pair">
-								<span class="metric-key">{key}</span>
-								<span class="metric-val">{metrics[key]}</span>
-							</div>
-						{/each}
-					</div>
+				<div
+					class="absolute right-4 bottom-14 left-4 flex flex-col items-center gap-2 text-xs"
+				>
+					{#if metricsExpanded}
+						<ul
+							class="font-roboto-mono flex max-w-full items-baseline gap-4 overflow-x-auto whitespace-nowrap py-2 text-xs"
+						>
+							{#each metricKeys as key}
+								<li
+									class="flex items-baseline gap-1.5 whitespace-nowrap"
+								>
+									<span class="font-normal text-[#7b7b7b]"
+										>{key}</span
+									>
+									<span
+										class="font-roboto-mono text-xs text-[#0d0d0d]"
+										>{metrics[key]}</span
+									>
+								</li>
+							{/each}
+						</ul>
+					{/if}
+					<button
+						type="button"
+						class="inline-flex cursor-pointer items-center gap-1 border-0 bg-transparent p-0 text-xs text-[#7b7b7b]"
+						onclick={() => (metricsExpanded = !metricsExpanded)}
+					>
+						<span>Metrics</span>
+						{#if metricsExpanded}
+							<ChevronsRightLeft
+								size={16}
+								strokeWidth={2}
+								class="shrink-0"
+							/>
+						{:else}
+							<ChevronsLeftRight
+								size={16}
+								strokeWidth={2}
+								class="shrink-0"
+							/>
+						{/if}
+					</button>
 				</div>
 			</section>
 		{:else if tab === "graphs"}
-			<section class="panel-graphs">
+			<section class="relative flex min-h-0 flex-1 flex-col overflow-auto pt-4 pb-2">
 				<TelemetryCharts
 					{liveState}
 					{timeState}
@@ -332,355 +414,102 @@
 				/>
 			</section>
 		{:else}
-			<section class="panel-serial" aria-label="Serial monitor">
-				<div bind:this={serialViewport} class="serial-scroll font-roboto-mono">
+			<section class="mt-2 flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg bg-[#111113]" aria-label="Serial monitor">
+				<div
+					bind:this={serialViewport}
+					class="font-roboto-mono min-h-0 flex-1 overflow-auto px-5 py-4 text-sm leading-6 text-[#bbbac1]"
+				>
 					{#if displaySerial.length === 0}
-						<span class="serial-placeholder">Waiting for serial data...</span>
+						<span class="text-[#bbbac1] opacity-65"
+							>Waiting for serial data...</span
+						>
 					{:else}
-						<pre class="serial-pre">{displaySerial}</pre>
+						<pre
+							class="m-0 whitespace-pre-wrap break-words">{displaySerial}</pre>
 					{/if}
 				</div>
-				<div class="serial-footer">
+				<div
+					class="flex items-center justify-between gap-4 border-t border-[#272727] px-5 py-3 text-sm text-[#7b7b7b]"
+				>
 					<button
 						type="button"
-						class="serial-footer-btn"
-						class:serial-footer-btn--active={hideInterpreted}
+						class={`inline-flex cursor-pointer items-center gap-1 border-0 bg-transparent p-0 ${hideInterpreted ? "text-[#f0efee]" : "text-[#7b7b7b]"}`}
 						onclick={() => (hideInterpreted = !hideInterpreted)}
 					>
-						<EyeClosed size={16} strokeWidth={1.5} class="icon-stroke" />
+						<EyeClosed
+							size={16}
+							strokeWidth={1.5}
+							class="shrink-0"
+						/>
 						<span>Hide interpreted</span>
 					</button>
-					<span class="serial-time"
-						>Time: {formatMissionTime(timeState.value)}</span
-					>
+					<span>Time: {formatMissionTime(timeState.value)}</span>
 				</div>
 			</section>
 		{/if}
 	</main>
 
-	<footer class="page-footnote">
+	{#if tab === "graphs"}
+		<div
+			aria-hidden="true"
+			class="pointer-events-none fixed right-0 bottom-0 left-0 h-10 bg-gradient-to-t from-[#f0efee] via-[#f0efee]/85 to-transparent"
+		></div>
+	{/if}
+
+	<footer
+		class="fixed bottom-4 left-4 m-0 flex flex-col items-start gap-1 text-[10px] leading-[1.35] text-[#b1b1b1] sm:left-10 sm:flex-row sm:items-center sm:gap-4"
+	>
 		<span>Testing app 2026.04.05</span>
 		<span>Data served through icfm/scripts/logs_wired_websocket.py</span>
 	</footer>
 
-	<div class="bottom-dock">
-		<div class="dock-cluster">
+	<div
+		class="fixed bottom-14 left-1/2 z-20 flex w-[calc(100%-2rem)] max-w-[560px] -translate-x-1/2 items-center justify-between rounded-lg border border-[#474747] bg-[#111113] px-2 py-2 text-[#bbbac1] shadow-[0_4px_16px_rgba(0,0,0,0.2)] sm:w-auto sm:min-w-[460px]"
+	>
+		<div class="flex items-center gap-2">
 			<button
 				type="button"
-				class="dock-btn"
+				class={`${dockButtonClass} text-[#bbbac1]`}
 				onclick={() => sendCommand("CALIBRATE")}>Calibrate</button
 			>
 			<button
 				type="button"
-				class="dock-btn dock-btn--icon"
+				class={`${dockButtonClass} text-[#bbbac1]`}
 				onclick={() => sendCommand("RESET")}
 			>
-				<RefreshCcw size={16} strokeWidth={1.5} class="icon-stroke" />
+				<RefreshCcw size={16} strokeWidth={1.5} class="shrink-0" />
 				<span>Reset</span>
 			</button>
 			<button
 				type="button"
-				class="dock-btn dock-btn--icon"
-				data-on={frozenState.value}
+				class={`${dockButtonClass} ${frozenState.value ? "text-[#e8e8ea]" : "text-[#bbbac1]"}`}
 				onclick={toggleFreeze}
 			>
-				<Snowflake size={16} strokeWidth={1.5} class="icon-stroke" />
+				<Snowflake size={16} strokeWidth={1.5} class="shrink-0" />
 				<span>Freeze</span>
 			</button>
 		</div>
-		<div class="dock-divider" aria-hidden="true"></div>
-		<div class="dock-cluster dock-cluster--status">
-			<span class="dock-status">
-				<span class="dock-status-label">Online</span>
-				<span class="status-dot" data-live={wsState === "connected"}></span>
+		<div
+			class="mx-8 h-6 w-px shrink-0 bg-[#474747]"
+			aria-hidden="true"
+		></div>
+		<div class="flex items-center gap-5 pl-1">
+			<span class="inline-flex items-center gap-2">
+				<span class="text-sm font-medium"
+					>{wsState === "connected" ? "Online" : "Offline"}</span
+				>
+				<span
+					class={`h-2 w-2 shrink-0 rounded-full ${wsState === "connected" ? "bg-[#3ecf8e]" : "bg-[#c45c5c]"}`}
+				></span>
 			</span>
-			<PlugZap size={18} strokeWidth={1.5} class="icon-stroke" />
+			<button
+				type="button"
+				class="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-[4px] border-0 bg-[#272727] text-[#bbbac1] transition-colors hover:bg-[#343434]"
+				aria-label="Reconnect websocket"
+				onclick={connectWebSocket}
+			>
+				<PlugZap size={18} strokeWidth={1.5} class="shrink-0" />
+			</button>
 		</div>
 	</div>
 </div>
-
-<style>
-	.page {
-		min-height: 100dvh;
-		display: flex;
-		flex-direction: column;
-		background: #f0efee;
-		color: #0d0d0d;
-		font-size: 14px;
-		position: relative;
-		padding-bottom: 120px;
-	}
-
-	.page-header {
-		display: flex;
-		flex-shrink: 0;
-		align-items: flex-start;
-		justify-content: space-between;
-		padding: 32px 40px 24px;
-	}
-
-	.brand-logo {
-		display: block;
-		height: 16px;
-		width: auto;
-	}
-
-	.top-nav {
-		display: flex;
-		align-items: center;
-		gap: 32px;
-	}
-
-	.nav-link {
-		background: none;
-		border: none;
-		padding: 0;
-		cursor: pointer;
-		font-family: inherit;
-		font-size: 14px;
-		font-weight: 400;
-		color: #0d0d0d;
-	}
-
-	.nav-link--active {
-		color: #7b7b7b;
-	}
-
-	.page-main {
-		flex: 1;
-		min-height: 0;
-		display: flex;
-		flex-direction: column;
-		padding: 0 40px;
-	}
-
-	.panel-3d {
-		position: relative;
-		flex: 1;
-		min-height: 480px;
-		overflow: hidden;
-		border-radius: 8px;
-		background: #f0efee;
-	}
-
-	.metrics-strip {
-		position: absolute;
-		left: 12px;
-		right: 12px;
-		bottom: 12px;
-		max-height: 40%;
-		overflow: hidden;
-		border-radius: 8px;
-		border: 1px solid #474747;
-		background: rgba(17, 17, 19, 0.92);
-		padding: 8px 10px;
-	}
-
-	.metrics-scroll {
-		display: flex;
-		min-width: max-content;
-		gap: 16px;
-		overflow-x: auto;
-		font-size: 12px;
-	}
-
-	.metric-pair {
-		display: flex;
-		align-items: baseline;
-		gap: 6px;
-		white-space: nowrap;
-	}
-
-	.metric-key {
-		color: #7b7b7b;
-		font-weight: 400;
-	}
-
-	.metric-val {
-		font-family: "Roboto Mono", ui-monospace, monospace;
-		font-size: 12px;
-		color: #bbbac1;
-	}
-
-	.panel-graphs {
-		flex: 1;
-		min-height: 0;
-		display: flex;
-		flex-direction: column;
-		overflow: auto;
-		padding-bottom: 8px;
-	}
-
-	.panel-serial {
-		flex: 1;
-		min-height: 0;
-		display: flex;
-		flex-direction: column;
-		border-radius: 8px;
-		background: #111113;
-		overflow: hidden;
-	}
-
-	.serial-scroll {
-		flex: 1;
-		min-height: 0;
-		overflow: auto;
-		padding: 16px 20px;
-		font-size: 14px;
-		line-height: 1.5;
-		color: #bbbac1;
-	}
-
-	.serial-placeholder {
-		color: #bbbac1;
-		opacity: 0.65;
-	}
-
-	.serial-pre {
-		margin: 0;
-		white-space: pre-wrap;
-		word-break: break-word;
-	}
-
-	.serial-footer {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: 16px;
-		padding: 12px 20px;
-		border-top: 1px solid #272727;
-		font-size: 14px;
-		font-weight: 400;
-		color: #7b7b7b;
-	}
-
-	.serial-footer-btn {
-		display: inline-flex;
-		align-items: center;
-		gap: 4px;
-		border: none;
-		background: none;
-		padding: 0;
-		cursor: pointer;
-		font: inherit;
-		color: inherit;
-	}
-
-	.serial-footer-btn :global(.icon-stroke) {
-		color: #7b7b7b;
-		flex-shrink: 0;
-	}
-
-	.serial-footer-btn--active {
-		color: #f0efee;
-	}
-
-	.serial-footer-btn--active :global(.icon-stroke) {
-		color: #f0efee;
-	}
-
-	.serial-time {
-		font-weight: 400;
-	}
-
-	.page-footnote {
-		position: fixed;
-		left: 40px;
-		bottom: 20px;
-		margin: 0;
-		display: flex;
-		flex-wrap: nowrap;
-		align-items: center;
-		gap: 16px;
-		font-size: 12px;
-		font-weight: 400;
-		line-height: 1.35;
-		color: #b1b1b1;
-	}
-
-	.bottom-dock {
-		position: fixed;
-		left: 50%;
-		bottom: 56px;
-		transform: translateX(-50%);
-		z-index: 20;
-		display: flex;
-		align-items: stretch;
-		gap: 0;
-		padding: 10px 20px;
-		border-radius: 8px;
-		border: 1px solid #474747;
-		background: #111113;
-		box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
-		color: #bbbac1;
-		font-weight: 500;
-	}
-
-	.dock-cluster {
-		display: flex;
-		align-items: center;
-		gap: 20px;
-	}
-
-	.dock-cluster--status {
-		gap: 16px;
-		padding-left: 4px;
-	}
-
-	.dock-divider {
-		width: 1px;
-		align-self: stretch;
-		margin: 0 20px;
-		background: #474747;
-		flex-shrink: 0;
-	}
-
-	.dock-btn {
-		display: inline-flex;
-		align-items: center;
-		gap: 4px;
-		border: none;
-		background: none;
-		padding: 0;
-		cursor: pointer;
-		font: inherit;
-		font-weight: 500;
-		font-size: 14px;
-		color: #bbbac1;
-	}
-
-	.dock-btn--icon {
-		gap: 4px;
-	}
-
-	.dock-btn[data-on="true"] {
-		color: #e8e8ea;
-	}
-
-	.dock-btn :global(.icon-stroke) {
-		color: currentColor;
-		flex-shrink: 0;
-	}
-
-	.dock-status {
-		display: inline-flex;
-		align-items: center;
-		gap: 8px;
-	}
-
-	.dock-status-label {
-		font-weight: 500;
-	}
-
-	.status-dot {
-		width: 8px;
-		height: 8px;
-		border-radius: 999px;
-		background: #c45c5c;
-		flex-shrink: 0;
-	}
-
-	.status-dot[data-live="true"] {
-		background: #3ecf8e;
-	}
-</style>
