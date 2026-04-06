@@ -12,7 +12,7 @@ import pathlib
 import sys
 from typing import Optional, Tuple, List
 
-SERIAL_PORT = "COM9"
+SERIAL_PORT = "COM3"
 BAUD_RATE = 115200
 SERIAL_TIMEOUT_SEC = 0.02
 WS_HOST = "localhost"
@@ -67,6 +67,8 @@ def parse_row(line: str) -> Tuple[Optional[str], Optional[List[float]]]:
 # WebSocket + Serial server
 # ---------------------------------------------------------------------------
 async def telemetry_server():
+    import logging
+    logging.getLogger("asyncio").setLevel(logging.CRITICAL)
     import serial_asyncio
     import websockets
 
@@ -149,17 +151,21 @@ async def telemetry_server():
 
     async def serial_reader():
         nonlocal serial_writer
+        import serial
         ser = await serial_asyncio.open_serial_connection(url=SERIAL_PORT, baudrate=BAUD_RATE)
         reader, writer = ser
         serial_writer = writer
         first_t_ms = None
         while True:
-            line = (await reader.readline()).decode("utf-8", errors="replace").strip()
+            try:
+                raw = await reader.readline()
+            except (serial.SerialException, ConnectionResetError, OSError):
+                print("[serial] device disconnected — exiting.")
+                return
+            line = raw.decode("utf-8", errors="replace").strip()
             if not line:
                 continue
-
             await broadcast(json.dumps({"type": "serial_raw", "line": line}))
-
             if any(line.startswith(p) for p in HEADER_PREFIXES) or line.upper().startswith("ERR,"):
                 continue
             kind, row = parse_row(line)
@@ -187,7 +193,11 @@ async def telemetry_server():
 
     # Run serial reader forever
     await serial_reader()
+
+    # Serial disconnected — shut down WebSocket server and exit
+    ws_server.close()
     await ws_server.wait_closed()
+    print("[ws] server closed.")
 
 
 if __name__ == "__main__":

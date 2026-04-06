@@ -1,5 +1,5 @@
-#ifndef GPS_H
-#define GPS_H
+#ifndef ICFM_GPS_H
+#define ICFM_GPS_H
 
 #include <Arduino.h>
 #include <SparkFun_u-blox_GNSS_Arduino_Library.h>

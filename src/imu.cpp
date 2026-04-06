@@ -18,7 +18,7 @@ b32 imu_init(void) {
         return false;
     }
     imu.setAccelRange(LSM6DS_ACCEL_RANGE_16_G);
-    imu.setGyroRange(LSM6DS_GYRO_RANGE_1000_DPS);
+    imu.setGyroRange(LSM6DS_GYRO_RANGE_500_DPS); // NOTE: With this we allow ~1,4 rotations/second at max before clipping
     imu.setAccelDataRate(LSM6DS_RATE_104_HZ);
     imu.setGyroDataRate(LSM6DS_RATE_104_HZ);
     imu_sample_rate_hz = 104.0f;
