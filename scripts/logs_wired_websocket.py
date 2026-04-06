@@ -4,10 +4,12 @@ Simplified Rocket Telemetry WebSocket server.
 Reads Kalman + Controller CSV rows from serial and broadcasts JSON to browser clients.
 Logs CSV under logs/.
 """
+
 import asyncio
 import csv
 import datetime as dt
 import json
+import logging
 import pathlib
 import sys
 from typing import Optional, Tuple, List
@@ -18,21 +20,44 @@ SERIAL_TIMEOUT_SEC = 0.02
 WS_HOST = "localhost"
 WS_PORT = 8765
 LOG_DIR = pathlib.Path("logs")
+SERIAL_RECONNECT_SEC = 1.0
 
 KALMAN_COLS = [
-    "t_ms", "wx", "wy", "wz",
-    "p_x", "p_y", "p_z",
-    "v_x", "v_y", "v_z",
-    "a_x", "a_y", "a_z",
-    "d_theta", "d_alpha", "d_beta",
-    "q_w", "q_x", "q_y", "q_z",
+    "t_ms",
+    "wx",
+    "wy",
+    "wz",
+    "p_x",
+    "p_y",
+    "p_z",
+    "v_x",
+    "v_y",
+    "v_z",
+    "a_x",
+    "a_y",
+    "a_z",
+    "d_theta",
+    "d_alpha",
+    "d_beta",
+    "q_w",
+    "q_x",
+    "q_y",
+    "q_z",
 ]
 CTRL_COLS = [
-    "t_ms", "qd_w", "qd_x", "qd_y", "qd_z",
-    "fin0", "fin1", "fin2", "fin3",
+    "t_ms",
+    "qd_w",
+    "qd_x",
+    "qd_y",
+    "qd_z",
+    "fin0",
+    "fin1",
+    "fin2",
+    "fin3",
 ]
 
 HEADER_PREFIXES = ("t_ms,", "Commands:", "STATE,", "FSM,")
+
 
 # ---------------------------------------------------------------------------
 # Serial helpers
@@ -72,13 +97,20 @@ async def telemetry_server():
     import serial_asyncio
     import websockets
 
+    logging.getLogger("serial_asyncio").setLevel(logging.CRITICAL)
+    ws_logger = logging.getLogger("websockets.server")
+    ws_logger.setLevel(logging.CRITICAL)
+    ws_logger.propagate = False
+
     # Logs
     LOG_DIR.mkdir(exist_ok=True)
     stamp = dt.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     fp_k = open(LOG_DIR / f"kalman_{stamp}.csv", "w", newline="", encoding="utf-8")
     fp_c = open(LOG_DIR / f"ctrl_{stamp}.csv", "w", newline="", encoding="utf-8")
-    writer_k = csv.writer(fp_k); writer_k.writerow(KALMAN_COLS)
-    writer_c = csv.writer(fp_c); writer_c.writerow(CTRL_COLS)
+    writer_k = csv.writer(fp_k)
+    writer_k.writerow(KALMAN_COLS)
+    writer_c = csv.writer(fp_c)
+    writer_c.writerow(CTRL_COLS)
 
     # WebSocket clients
     clients: set = set()
@@ -112,39 +144,55 @@ async def telemetry_server():
 
                 cmd = str(msg.get("cmd", "")).strip().upper()
                 if cmd not in ("CALIBRATE", "RESET"):
-                    await ws.send(json.dumps({
-                        "type": "command_ack",
-                        "ok": False,
-                        "cmd": cmd,
-                        "reason": "invalid_command",
-                    }))
+                    await ws.send(
+                        json.dumps(
+                            {
+                                "type": "command_ack",
+                                "ok": False,
+                                "cmd": cmd,
+                                "reason": "invalid_command",
+                            }
+                        )
+                    )
                     continue
 
                 if serial_writer is None:
-                    await ws.send(json.dumps({
-                        "type": "command_ack",
-                        "ok": False,
-                        "cmd": cmd,
-                        "reason": "serial_not_ready",
-                    }))
+                    await ws.send(
+                        json.dumps(
+                            {
+                                "type": "command_ack",
+                                "ok": False,
+                                "cmd": cmd,
+                                "reason": "serial_not_ready",
+                            }
+                        )
+                    )
                     continue
 
                 try:
                     async with serial_write_lock:
                         serial_writer.write((cmd + "\n").encode("utf-8"))
                         await serial_writer.drain()
-                    await ws.send(json.dumps({
-                        "type": "command_ack",
-                        "ok": True,
-                        "cmd": cmd,
-                    }))
+                    await ws.send(
+                        json.dumps(
+                            {
+                                "type": "command_ack",
+                                "ok": True,
+                                "cmd": cmd,
+                            }
+                        )
+                    )
                 except Exception as e:
-                    await ws.send(json.dumps({
-                        "type": "command_ack",
-                        "ok": False,
-                        "cmd": cmd,
-                        "reason": f"serial_write_error:{e}",
-                    }))
+                    await ws.send(
+                        json.dumps(
+                            {
+                                "type": "command_ack",
+                                "ok": False,
+                                "cmd": cmd,
+                                "reason": f"serial_write_error:{e}",
+                            }
+                        )
+                    )
         finally:
             clients.discard(ws)
             print(f"[ws] client disconnected ({len(clients)})")
@@ -188,7 +236,7 @@ async def telemetry_server():
             await broadcast(msg)
 
     # Start WebSocket server
-    ws_server = await websockets.serve(ws_handler, WS_HOST, WS_PORT)
+    ws_server = await websockets.serve(ws_handler, WS_HOST, WS_PORT, logger=ws_logger)
     print(f"[ws] listening on ws://{WS_HOST}:{WS_PORT}")
 
     # Run serial reader forever
