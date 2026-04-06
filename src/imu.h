@@ -1,12 +1,12 @@
-#ifndef IMU_H
-#define IMU_H
+#ifndef ICFM_IMU_H
+#define ICFM_IMU_H
 
 #include <Arduino.h>
-#include <cstdint>
 #include <Wire.h>
-#include "Adafruit_ISM330DHCX.h"
+#include <Adafruit_LSM6DS.h>
+#include <Adafruit_ISM330DHCX.h>
 
-#include "base.h"
+#include "../include/base.h"
 
 typedef struct {
 	f32 ax, ay, az; // raw accleration

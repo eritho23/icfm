@@ -1,7 +1,9 @@
-#ifndef QUATERNION_UTILS_H
-#define QUATERNION_UTILS_H
+#ifndef ICFM_QUATERNION_UTILS_H
+#define ICFM_QUATERNION_UTILS_H
 
-#include "base.h"
+#include <math.h>
+
+#include "../include/base.h"
 
 /*
     Quaternion convention: scalar-first [w, x, y, z]

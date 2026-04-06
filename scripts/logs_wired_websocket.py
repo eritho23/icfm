@@ -14,7 +14,7 @@ import pathlib
 import sys
 from typing import Optional, Tuple, List
 
-SERIAL_PORT = "COM9"
+SERIAL_PORT = "COM3"
 BAUD_RATE = 115200
 SERIAL_TIMEOUT_SEC = 0.02
 WS_HOST = "localhost"
@@ -92,7 +92,8 @@ def parse_row(line: str) -> Tuple[Optional[str], Optional[List[float]]]:
 # WebSocket + Serial server
 # ---------------------------------------------------------------------------
 async def telemetry_server():
-    import serial
+    import logging
+    logging.getLogger("asyncio").setLevel(logging.CRITICAL)
     import serial_asyncio
     import websockets
 
@@ -198,78 +199,53 @@ async def telemetry_server():
 
     async def serial_reader():
         nonlocal serial_writer
-        reader = None
-        writer = None
-        opened = False
-        try:
-            ser = await serial_asyncio.open_serial_connection(
-                url=SERIAL_PORT, baudrate=BAUD_RATE
-            )
-            reader, writer = ser
-            serial_writer = writer
-            opened = True
-            print(f"[serial] opened {SERIAL_PORT} @ {BAUD_RATE}")
-            first_t_ms = None
-            while True:
-                line = (
-                    (await reader.readline()).decode("utf-8", errors="replace").strip()
-                )
-                if not line:
-                    continue
+        import serial
+        ser = await serial_asyncio.open_serial_connection(url=SERIAL_PORT, baudrate=BAUD_RATE)
+        reader, writer = ser
+        serial_writer = writer
+        first_t_ms = None
+        while True:
+            try:
+                raw = await reader.readline()
+            except (serial.SerialException, ConnectionResetError, OSError):
+                print("[serial] device disconnected — exiting.")
+                return
+            line = raw.decode("utf-8", errors="replace").strip()
+            if not line:
+                continue
+            await broadcast(json.dumps({"type": "serial_raw", "line": line}))
+            if any(line.startswith(p) for p in HEADER_PREFIXES) or line.upper().startswith("ERR,"):
+                continue
+            kind, row = parse_row(line)
+            if kind is None or row is None:
+                continue
+            if first_t_ms is None:
+                first_t_ms = row[0]
+            t_s = (row[0] - first_t_ms) / 1000.0
+            data = dict(zip(KALMAN_COLS if kind == "kalman" else CTRL_COLS, row))
+            data["t_s"] = t_s
 
-                await broadcast(json.dumps({"type": "serial_raw", "line": line}))
+            # Write CSV
+            if kind == "kalman":
+                writer_k.writerow(row); fp_k.flush()
+            else:
+                writer_c.writerow(row); fp_c.flush()
 
-                if any(
-                    line.startswith(p) for p in HEADER_PREFIXES
-                ) or line.upper().startswith("ERR,"):
-                    continue
-                kind, row = parse_row(line)
-                if kind is None or row is None:
-                    continue
-                if first_t_ms is None:
-                    first_t_ms = row[0]
-                t_s = (row[0] - first_t_ms) / 1000.0
-                data = dict(zip(KALMAN_COLS if kind == "kalman" else CTRL_COLS, row))
-                data["t_s"] = t_s
-
-                # Write CSV
-                if kind == "kalman":
-                    writer_k.writerow(row)
-                    fp_k.flush()
-                else:
-                    writer_c.writerow(row)
-                    fp_c.flush()
-
-                # Broadcast JSON
-                msg = json.dumps({"type": kind, "data": data})
-                await broadcast(msg)
-        except (serial.SerialException, OSError, asyncio.IncompleteReadError):
-            if opened:
-                print("[serial] disconnected")
-            return
-        finally:
-            serial_writer = None
-            if writer is not None:
-                writer.close()
-                try:
-                    await writer.wait_closed()
-                except Exception:
-                    pass
+            # Broadcast JSON
+            msg = json.dumps({"type": kind, "data": data})
+            await broadcast(msg)
 
     # Start WebSocket server
     ws_server = await websockets.serve(ws_handler, WS_HOST, WS_PORT, logger=ws_logger)
     print(f"[ws] listening on ws://{WS_HOST}:{WS_PORT}")
 
-    try:
-        # Keep websocket alive; reconnect serial when unplugged/replugged.
-        while True:
-            await serial_reader()
-            await asyncio.sleep(SERIAL_RECONNECT_SEC)
-    finally:
-        ws_server.close()
-        await ws_server.wait_closed()
-        fp_k.close()
-        fp_c.close()
+    # Run serial reader forever
+    await serial_reader()
+
+    # Serial disconnected — shut down WebSocket server and exit
+    ws_server.close()
+    await ws_server.wait_closed()
+    print("[ws] server closed.")
 
 
 if __name__ == "__main__":

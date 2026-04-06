@@ -28,13 +28,12 @@ f32 pid_update(pid *p, f32 error, f32 rate, f32 dt) {
     return p->kp * error + p->ki * p->integral - p->kd * rate;
 }
 
-void controller_update(controller *c, f32 dt, quat *q_current, matrix *state) {
-    static quat q_prev = {1,0,0,0};
+void controller_update(controller_t *c, f32 dt, quat *q_current, matrix *state) {
+    static quat q_prev = {1, 0, 0, 0};
     static b32 q_prev_valid = false;
 
+	// TODO: Actually use the state to scale with velocity for example
     (void)state;
-
-    if (dt <= 1e-6f) dt = 1e-3f;
 
     // Normalize current attitude
     quat q_curr = *q_current;
@@ -54,15 +53,15 @@ void controller_update(controller *c, f32 dt, quat *q_current, matrix *state) {
         q_curr.z = -q_curr.z;
     }
 
-    // Attitude error
+    // Attitude error, proportional term
     quat q_err = attitude_error(&c->q_desired, &q_curr);
 
-    // Small-angle approximation (IMPORTANT)
+    // Quaternion -> Radians, small-angle approximation
     f32 err_roll = 2.0f * q_err.x;
     f32 err_pitch = 2.0f * q_err.y;
     f32 err_yaw = 2.0f * q_err.z;
 
-    // Angular rates from quaternion delta
+    // Angular rates from quaternion delta, derivative term
     quat dq, q_prev_conj;
     quat_conjugate(&q_prev_conj, &q_prev);
     quat_mul(&dq, &q_curr, &q_prev_conj);
@@ -82,11 +81,11 @@ void controller_update(controller *c, f32 dt, quat *q_current, matrix *state) {
     q_prev = q_curr;
 
     // PID
-    f32 u_roll = pid_update(&c->pid_roll,  err_roll,  wx_b, dt);
+    f32 u_roll = pid_update(&c->pid_roll, err_roll, wx_b, dt);
     f32 u_pitch = pid_update(&c->pid_pitch, err_pitch, wy_b, dt);
-    f32 u_yaw = pid_update(&c->pid_yaw,   err_yaw,   wz_b, dt);
+    f32 u_yaw = pid_update(&c->pid_yaw, err_yaw, wz_b, dt);
 
-    // Rotate pitch/yaw from world → body
+    // Rotate pitch/yaw from world -> body
     f32 u_world[3] = {0.0f, u_pitch, u_yaw};
     f32 u_body[3];
     quat_rotate_inv(&q_curr, u_world, u_body);
@@ -101,11 +100,11 @@ void controller_update(controller *c, f32 dt, quat *q_current, matrix *state) {
 	f32 delta[4] = {
 		 u_yaw_b + u_roll, // fin0 (0°)
 		 u_pitch_b + u_roll, // fin1 (90°)
-		-u_yaw_b + u_roll, // fin2 (180°) — opposite to fin0
-		-u_pitch_b + u_roll, // fin3 (270°) — opposite to fin1
+		-u_yaw_b + u_roll, // fin2 (180°) - opposite to fin0
+		-u_pitch_b + u_roll, // fin3 (270°) - opposite to fin1
 	};
 
-    // Normalize
+    // Normalize, i.e. keep commands within -1 to 1
     f32 max_abs = 0.0f;
     for (int i = 0; i < 4; i++) {
         f32 a = fabsf(delta[i]);
@@ -118,18 +117,13 @@ void controller_update(controller *c, f32 dt, quat *q_current, matrix *state) {
         }
     }
 
-    // Convert to fin angles
+    // Scale to fin angles
     for (int i = 0; i < 4; i++) {
-        f32 cmd = delta[i] * MAX_FIN_DEFLECTION_DEG;
-
-        if (cmd > MAX_FIN_DEFLECTION_DEG) cmd = MAX_FIN_DEFLECTION_DEG;
-        if (cmd < -MAX_FIN_DEFLECTION_DEG) cmd = -MAX_FIN_DEFLECTION_DEG;
-
-        c->fin_angle_deg[i] = cmd;
+        c->fin_angle_deg[i] = delta[i] * MAX_FIN_DEFLECTION_DEG;
     }
 }
 
-void controller_debug_print_csv_row(u32 t_ms, const controller *c) {
+void controller_debug_print_csv_row(u32 t_ms, const controller_t *c) {
     Serial.print(t_ms); Serial.print(',');
 
     // Desired attitude

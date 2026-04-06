@@ -1,5 +1,5 @@
-#ifndef BASE_H
-#define BASE_H 
+#ifndef ICFM_BASE_H
+#define ICFM_BASE_H 
 
 #include <stdio.h>
 #include <stdint.h>

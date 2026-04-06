@@ -22,3 +22,10 @@ void servos_write(f32 fin_servo_angle[4]) {
         servos[i].write((int)servo_pos);
     }
 }
+
+void servos_debug_write_angles(f32 fin_servo_angle[4]) {
+    for (int i = 0; i < 4; i++) {
+        f32 servo_pos = 90.0f + fin_servo_angle[i];
+		Serial.printf("Servo %d: ", i); Serial.println((int)servo_pos);
+    }
+}

@@ -1,16 +1,16 @@
-#ifndef KALMAN_FILTER_H
-#define KALMAN_FILTER_H
+#ifndef ICFM_KALMAN_FILTER_H
+#define ICFM_KALMAN_FILTER_H
 
 #include <Arduino.h>
 
-#include "base.h"
-#include "matrix_utils.h"
-#include "quaternion_utils.h"
+#include "../include/base.h"
+#include "./matrix_utils.h"
+#include "./quaternion_utils.h"
 
 /*
    These enums help us identity which index is what in the matrices
-   since the buffer is row-major.
-   */
+   since the buffer is row-major (meaning just a 1d array).
+*/
 typedef enum {
 	p_x = 0, p_y, p_z,
 	v_x, v_y, v_z,
@@ -23,7 +23,7 @@ typedef enum {
 	m_gps_x = 0, m_gps_y, m_gps_z,
 	m_acc_x, m_acc_y, m_acc_z,
 	m_dim // = 6
-} me_index;
+} measurement_index;
 
 b32 kalman_filter_init(const matrix* init_state, quat init_q, f32 init_variance);
 matrix* kalman_filter_update(f32 dt, f32 wx, f32 wy, f32 wz);

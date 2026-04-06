@@ -1,5 +1,4 @@
 #include "quaternion_utils.h"
-#include <math.h>
 
 void quat_normalise(quat *q) {
     f32 n = sqrtf(q->w*q->w + q->x*q->x + q->y*q->y + q->z*q->z);
