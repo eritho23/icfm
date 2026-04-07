@@ -1,8 +1,6 @@
 #include "gps.h"
 
 SFE_UBLOX_GNSS gps;
-SoftwareSerial soft_serial(20, 21); // RX, TX
-
 long last_time = 0; // Simple local timer. Limits amount of I2C traffic to u-blox module.
 
 void gps_setup() {
@@ -10,13 +8,13 @@ void gps_setup() {
 	// Loop until we're in sync and then ensure it's at 38400 baud.
 	do {
 		Serial.println("GNSS: trying 38400 baud");
-		soft_serial.begin(38400);
-		if (gps.begin(soft_serial) == true) break;
+		Serial1.begin(38400, SERIAL_8N1, 20, 21);
+		if (gps.begin(Serial1) == true) break;
 
 		delay(100);
 		Serial.println("GNSS: trying 9600 baud");
-		soft_serial.begin(9600);
-		if (gps.begin(soft_serial) == true) {
+		Serial1.begin(9600, SERIAL_8N1, 20, 21);
+		if (gps.begin(Serial1) == true) {
 			Serial.println("GNSS: connected at 9600 baud, switching to 38400");
 			gps.setSerialRate(38400);
 			delay(100);
