@@ -8,12 +8,12 @@ void gps_setup() {
 	// Loop until we're in sync and then ensure it's at 38400 baud.
 	do {
 		Serial.println("GNSS: trying 38400 baud");
-		Serial1.begin(38400, SERIAL_8N1, 20, 21);
+		Serial1.begin(38400, SERIAL_8N1, 21, 20);
 		if (gps.begin(Serial1) == true) break;
 
 		delay(100);
 		Serial.println("GNSS: trying 9600 baud");
-		Serial1.begin(9600, SERIAL_8N1, 20, 21);
+		Serial1.begin(9600, SERIAL_8N1, 21, 20);
 		if (gps.begin(Serial1) == true) {
 			Serial.println("GNSS: connected at 9600 baud, switching to 38400");
 			gps.setSerialRate(38400);

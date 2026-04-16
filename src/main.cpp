@@ -39,7 +39,7 @@ static u32 g_last_kf_update_us = 0;
 
 static void set_fins_neutral(void) {
 	f32 neutral[4] = {0.0f, 0.0f, 0.0f, 0.0f};
-	// servos_write(neutral);
+	servos_write(neutral);
 }
 
 static const char *state_name(flight_state_t s) {
@@ -109,13 +109,15 @@ void setup() {
 	Wire.begin(I2C_SDA, I2C_SCL);
 	Wire.setClock(100000);
 
+	servos_setup();
+
 	// i2c_scan();
 
 	// PID tune
 	// TODO: Tune gains according to simulations in simulink
-	controller.pid_roll = (pid){ .kp = 0.8f, .ki = 0.0f, .kd = 0.08f };
-	controller.pid_pitch = (pid){ .kp = 0.8f, .ki = 0.0f, .kd = 0.08f };
-	controller.pid_yaw = (pid){ .kp = 0.4f, .ki = 0.0f, .kd = 0.04f };
+	controller.pid_roll = (pid){ .kp = 5.0f, .ki = 0.0f, .kd = 0.4f };
+	controller.pid_pitch = (pid){ .kp = 5.0f, .ki = 0.0f, .kd = 0.4f };
+	controller.pid_yaw = (pid){ .kp = 3.0f, .ki = 0.0f, .kd = 0.2f };
 	controller.pid_roll.integral_limit = 1.0f;
 	controller.pid_pitch.integral_limit = 1.0f;
 	controller.pid_yaw.integral_limit = 1.0f;
@@ -220,7 +222,7 @@ void loop() {
 				controller_update(&controller, dt, (quat*)q, (matrix*)s);
 				g_last_kf_state = s;
 
-				// servos_write(controller.fin_angle_deg);
+				servos_write(controller.fin_angle_deg);
 			}
 
 			if (now_ms - last_log_ms >= CONTROL_LOG_PERIOD_MS) {

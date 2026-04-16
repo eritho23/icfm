@@ -14,7 +14,7 @@ import pathlib
 import sys
 from typing import Optional, Tuple, List
 
-SERIAL_PORT = "COM3"
+SERIAL_PORT = "COM9"
 BAUD_RATE = 115200
 SERIAL_TIMEOUT_SEC = 0.02
 WS_HOST = "localhost"
