@@ -2,25 +2,25 @@
 #define ICFM_CONTROLLER_H
 
 #include "../include/base.h"
-#include "./quaternion_utils.h"
 #include "./kalman_filter.h"
+#include "./quaternion_utils.h"
 
 #define MAX_FIN_DEFLECTION_DEG 30.0f
 
 typedef struct {
-    f32 kp;
-    f32 ki;
-    f32 kd;
-    f32 integral;
-    f32 integral_limit;
+  f32 kp;
+  f32 ki;
+  f32 kd;
+  f32 integral;
+  f32 integral_limit;
 } pid;
 
 typedef struct {
-    pid pid_roll;
-    pid pid_pitch;
-    pid pid_yaw;
-    quat q_desired; // desired attitude (world frame, set by guidance)
-    f32 fin_angle_deg[4];
+  pid pid_roll;
+  pid pid_pitch;
+  pid pid_yaw;
+  quat q_desired; // desired attitude (world frame, set by guidance)
+  f32 fin_angle_deg[4];
 } controller_t;
 
 quat attitude_error(const quat *q_desired, const quat *q_current);

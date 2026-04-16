@@ -12,7 +12,7 @@
 */
 
 typedef struct {
-    f32 w, x, y, z;
+  f32 w, x, y, z;
 } quat;
 
 void quat_normalise(quat *q);
