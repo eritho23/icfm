@@ -41,6 +41,7 @@ b32 kalman_filter_init(const matrix *init_state, quat init_q,
                        f32 init_variance);
 matrix *kalman_filter_update(f32 dt, f32 wx, f32 wy, f32 wz);
 void kalman_filter_rotate_accel(f32 ax_b, f32 ay_b, f32 az_b);
+void kalman_filter_set_gps_enu(f32 x_east, f32 y_north, f32 z_up);
 
 matrix *kalman_filter_get_z(void);
 const quat *kalman_filter_get_quat(void);

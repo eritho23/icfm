@@ -47,7 +47,7 @@ void servos_write(f32 fin_servo_angle[4]) {
   }
 }
 
-void test_servos() {
+void servos_test() {
   servo_write_angle(0, -40.0f);
   servo_write_angle(1, -40.0f);
   servo_write_angle(2, -40.0f);

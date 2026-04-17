@@ -11,7 +11,7 @@
 typedef struct {
   f32 ax, ay, az; // raw accleration
   f32 wx, wy, wz; // raw gyro rates
-} imu_m;
+} imu_measurement_t;
 
 extern f32 imu_sample_rate_hz;
 
@@ -19,6 +19,6 @@ b32 imu_init(void);
 b32 imu_calibrate(void); // blocks for 10s
 
 void imu_debug(void);
-b32 get_imu_data(imu_m *out);
+b32 get_imu_data(imu_measurement_t *out);
 
 #endif

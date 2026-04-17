@@ -68,7 +68,7 @@ b32 imu_calibrate(void) {
   return true;
 }
 
-b32 get_imu_data(imu_m *out) {
+b32 get_imu_data(imu_measurement_t *out) {
   sensors_event_t accel_ev, gyro_ev, temp_ev;
   imu.getEvent(&accel_ev, &gyro_ev, &temp_ev);
 
@@ -85,7 +85,7 @@ b32 get_imu_data(imu_m *out) {
 }
 
 void imu_debug(void) {
-  imu_m d;
+  imu_measurement_t d;
   if (!get_imu_data(&d))
     return;
   Serial.print("ax: ");

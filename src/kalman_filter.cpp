@@ -41,6 +41,8 @@ typedef struct {
   // attitude reference quaternion
   quat q_ref;
 
+  b32 gps_fresh;
+
 } kalman_state;
 
 static kalman_state kf;
@@ -90,11 +92,13 @@ static void _build_F(f32 dt, f32 wx, f32 wy, f32 wz) {
   set_F(d_beta, d_beta, 1);
 }
 
-static void _build_H(void) {
+static void _build_H(b32 use_gps) {
   mat_clear(&kf.H);
-  kf.H.data[(u32)m_gps_x * state_dim + p_x] = 1.0f;
-  kf.H.data[(u32)m_gps_y * state_dim + p_y] = 1.0f;
-  kf.H.data[(u32)m_gps_z * state_dim + p_z] = 1.0f;
+  if (use_gps) {
+    kf.H.data[(u32)m_gps_x * state_dim + p_x] = 1.0f;
+    kf.H.data[(u32)m_gps_y * state_dim + p_y] = 1.0f;
+    kf.H.data[(u32)m_gps_z * state_dim + p_z] = 1.0f;
+  }
   kf.H.data[(u32)m_acc_x * state_dim + a_x] = 1.0f;
   kf.H.data[(u32)m_acc_y * state_dim + a_y] = 1.0f;
   kf.H.data[(u32)m_acc_z * state_dim + a_z] = 1.0f;
@@ -204,12 +208,13 @@ b32 kalman_filter_init(const matrix *init_state, quat init_q,
   mat_diag(&kf.Q, (f32 *)Q_diag, state_dim);
   mat_diag(&kf.R, (f32 *)R_diag, m_dim);
   _build_I();
-  _build_H();
+  _build_H(false);
 
   // Initial state and quaternion
   mat_copy(&kf.x_posterior, init_state);
   kf.q_ref = init_q;
   quat_normalise(&kf.q_ref);
+  kf.gps_fresh = false;
 
   // Initial covariance: large for translational states, tight for attitude
   // error
@@ -233,11 +238,20 @@ void kalman_filter_rotate_accel(f32 ax_b, f32 ay_b, f32 az_b) {
   kf.z.data[m_acc_z] = a_world[2];
 }
 
+void kalman_filter_set_gps_enu(f32 x_east, f32 y_north, f32 z_up) {
+  kf.z.data[m_gps_x] = x_east;
+  kf.z.data[m_gps_y] = y_north;
+  kf.z.data[m_gps_z] = z_up;
+  kf.gps_fresh = true;
+}
+
 matrix *kalman_filter_update(f32 dt, f32 wx, f32 wy, f32 wz) {
+  _build_H(kf.gps_fresh);
   _predict(dt, wx, wy, wz);
   _compute_gain();
   _update_state();
   _update_covariance();
+  kf.gps_fresh = false;
   return &kf.x_posterior;
 }
 

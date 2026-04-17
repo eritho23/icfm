@@ -21,7 +21,7 @@ static const int SERVO_MIN_US = SERVO_CENTER_US - SERVO_TRAVEL_US; // 1120us
 static const int SERVO_MAX_US = SERVO_CENTER_US + SERVO_TRAVEL_US; // 1920us
 
 void servos_setup();
-void test_servos();
+void servos_test();
 void servos_write(f32 fin_angle_deg[4]);
 void servos_debug_write_angles(f32 fin_servo_angle[4]);
 

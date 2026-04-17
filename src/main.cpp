@@ -3,6 +3,7 @@
 #include "../include/base.h"
 
 #include "./controller.h"
+#include "./gps.h"
 #include "./imu.h"
 #include "./kalman_filter.h"
 #include "./servos.h"
@@ -16,7 +17,8 @@ f32 dt = imu_dt_default;
 
 #define CONTROL_LOG_PERIOD_MS 100
 
-static imu_m imu_measurement;
+static imu_measurement_t imu_measurement;
+static gps_measurement_t gps_measurement;
 
 static controller_t controller;
 
@@ -118,6 +120,7 @@ void setup() {
   Wire.setClock(100000);
 
   servos_setup();
+  gps_setup();
 
   // i2c_scan();
 
@@ -211,6 +214,14 @@ void loop() {
     const u32 now_us = micros();
     const u32 now_ms = millis();
 
+    gps_test();
+
+    if (gps_read_local_enu(&gps_measurement) && gps_measurement.fresh &&
+        gps_measurement.valid) {
+      kalman_filter_set_gps_enu(gps_measurement.x_east_m, gps_measurement.y_north_m,
+                                gps_measurement.z_up_m);
+    }
+
     if (get_imu_data(&imu_measurement)) {
       if (g_last_kf_update_us == 0) {
         g_last_kf_update_us = now_us;
@@ -242,14 +253,7 @@ void loop() {
       f32 roll, pitch, yaw;
       kalman_filter_get_euler_deg(&roll, &pitch, &yaw);
 
-      Serial.print("Roll: ");
-      Serial.print(roll, 4);
-      Serial.print(" Pitch: ");
-      Serial.print(pitch, 4);
-      Serial.print(" Yaw: ");
-      Serial.println(yaw, 4);
-
-      servos_debug_write_angles(controller.fin_angle_deg);
+      // servos_debug_write_angles(controller.fin_angle_deg);
 
       kalman_filter_debug_print_csv_row(now_ms, imu_measurement.wx,
                                         imu_measurement.wy, imu_measurement.wz,
