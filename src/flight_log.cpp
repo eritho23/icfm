@@ -6,7 +6,7 @@
 
 #define LOG_PATH "/flight.csv"
 #define FLUSH_EVERY_ROWS 10
-#define LINE_BUF_LEN 256
+#define LINE_BUF_LEN 400
 
 static File g_file;
 static bool g_open = false;
@@ -45,9 +45,8 @@ void flog_init(void) {
   g_open           = true;
   g_rows_unflushed = 0;
 
-  // CSV header — extend this to match your actual columns
-  g_file.println("t_ms,wx,wy,wz,roll_deg,pitch_deg,yaw_deg,"
-                 "fin0,fin1,fin2,fin3");
+  g_file.println("t_ms,wx,wy,wz,p_x,p_y,p_z,v_x,v_y,v_z,a_x,a_y,a_z,d_theta,"
+                 "d_alpha,d_beta,q_w,q_x,q_y,q_z,fin0,fin1,fin2,fin3");
   ble_send("LOG: flash logging started");
 }
 
