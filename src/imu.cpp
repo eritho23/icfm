@@ -1,5 +1,7 @@
 #include "imu.h"
 
+#include "bluetooth.h"
+
 static Adafruit_ISM330DHCX imu;
 
 f32 imu_sample_rate_hz;
@@ -13,9 +15,9 @@ static inline void map_sensor_to_body(f32 sx, f32 sy, f32 sz, f32 *bx, f32 *by,
 }
 
 b32 imu_init(void) {
-  Serial.println("Initializing IMU...");
+  ble_send("Initializing IMU...");
   if (!imu.begin_I2C()) {
-    Serial.println("IMU connection failed");
+    ble_send("IMU connection failed");
     return false;
   }
   imu.setAccelRange(LSM6DS_ACCEL_RANGE_16_G);
@@ -35,13 +37,13 @@ b32 imu_init(void) {
     delay(10);
   }
 
-  Serial.println("IMU init success");
+  ble_send("IMU init success");
 
   return true;
 }
 
 b32 imu_calibrate(void) {
-  Serial.println("Calibrating gyro bias...");
+  ble_send("Calibrating gyro bias...");
   const int samples = 1000;
   f32 gx_sum = 0, gy_sum = 0, gz_sum = 0;
 
@@ -58,13 +60,9 @@ b32 imu_calibrate(void) {
   gyro_bias[1] = gy_sum / samples;
   gyro_bias[2] = gz_sum / samples;
 
-  Serial.print("Gyro bias (rad/s)  x: ");
-  Serial.print(gyro_bias[0], 6);
-  Serial.print("  y: ");
-  Serial.print(gyro_bias[1], 6);
-  Serial.print("  z: ");
-  Serial.println(gyro_bias[2], 6);
-  Serial.println("IMU calibrated.");
+  ble_sendf("Gyro bias (rad/s)  x: %.6f  y: %.6f  z: %.6f", gyro_bias[0],
+            gyro_bias[1], gyro_bias[2]);
+  ble_send("IMU calibrated.");
   return true;
 }
 
@@ -88,16 +86,6 @@ void imu_debug(void) {
   imu_measurement_t d;
   if (!get_imu_data(&d))
     return;
-  Serial.print("ax: ");
-  Serial.print(d.ax, 4);
-  Serial.print(" ay: ");
-  Serial.print(d.ay, 4);
-  Serial.print(" az: ");
-  Serial.print(d.az, 4);
-  Serial.print(" wx: ");
-  Serial.print(d.wx, 4);
-  Serial.print(" wy: ");
-  Serial.print(d.wy, 4);
-  Serial.print(" wz: ");
-  Serial.println(d.wz, 4);
+  ble_sendf("ax: %.4f ay: %.4f az: %.4f wx: %.4f wy: %.4f wz: %.4f", d.ax,
+            d.ay, d.az, d.wx, d.wy, d.wz);
 }

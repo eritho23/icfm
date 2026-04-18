@@ -327,7 +327,7 @@ function quatToEuler(w: number, x: number, y: number, z: number) {
 	return [roll, pitch, yaw];
 }
 
-function sendCommand(cmd: "CALIBRATE" | "RESET") {
+function sendCommand(cmd: "CALIBRATE" | "RESET" | "DUMP") {
 	if (!ws || ws.readyState !== WebSocket.OPEN) return;
 	ws.send(JSON.stringify({ type: "command", cmd }));
 }
@@ -566,7 +566,7 @@ $effect(() => {
 		class="fixed bottom-4 left-4 m-0 flex flex-col items-start gap-1 text-[10px] leading-[1.35] text-[#b1b1b1] sm:left-10 sm:flex-row sm:items-center sm:gap-4"
 	>
 		<span>Testing app 2026.04.05</span>
-		<span>Data served through icfm/scripts/logs_wired_websocket.py</span>
+		<span>Data served through icfm/scripts/logs_ble_websocket.py</span>
 	</footer>
 
 	<div
@@ -586,6 +586,11 @@ $effect(() => {
 				<RefreshCcw size={16} strokeWidth={1.5} class="shrink-0" />
 				<span>Reset</span>
 			</button>
+			<button
+				type="button"
+				class={`${dockButtonClass} text-[#bbbac1]`}
+				onclick={() => sendCommand("DUMP")}>Dump</button
+			>
 			<button
 				type="button"
 				class={`${dockButtonClass} ${frozenState.value ? "text-[#e8e8ea]" : "text-[#bbbac1]"}`}

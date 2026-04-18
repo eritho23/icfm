@@ -1,5 +1,7 @@
 #include "gps.h"
 
+#include "bluetooth.h"
+
 SFE_UBLOX_GNSS gps;
 long last_time =
     0; // Simple local timer. Limits amount of I2C traffic to u-blox module.
@@ -17,16 +19,16 @@ void gps_setup() {
   // Assume that the U-Blox GNSS is running at 9600 baud (the default) or at
   // 38400 baud. Loop until we're in sync and then ensure it's at 38400 baud.
   do {
-    Serial.println("GNSS: trying 38400 baud");
+    ble_send("GNSS: trying 38400 baud");
     Serial1.begin(38400, SERIAL_8N1, 21, 20);
     if (gps.begin(Serial1) == true)
       break;
 
     delay(100);
-    Serial.println("GNSS: trying 9600 baud");
+    ble_send("GNSS: trying 9600 baud");
     Serial1.begin(9600, SERIAL_8N1, 21, 20);
     if (gps.begin(Serial1) == true) {
-      Serial.println("GNSS: connected at 9600 baud, switching to 38400");
+      ble_send("GNSS: connected at 9600 baud, switching to 38400");
       gps.setSerialRate(38400);
       delay(100);
     } else {
@@ -34,7 +36,7 @@ void gps_setup() {
       delay(2000); // Wait a bit before trying again to limit the Serial output
     }
   } while (1);
-  Serial.println("GNSS serial connected");
+  ble_send("GNSS serial connected");
   gps.setUART1Output(COM_TYPE_UBX); // Set the UART port to output UBX only
   gps.setNavigationFrequency(10); // 10 Hz update rate
   gps.setAutoPVT(true);
@@ -77,30 +79,4 @@ b32 gps_read_local_enu(gps_measurement_t *out) {
   out->valid = true;
 
   return true;
-}
-
-void gps_test() {
-  static unsigned long last_time = 0;
-  if (millis() - last_time < 1000) return;
-  last_time = millis();
-
-  gps_measurement_t m;
-  gps_read_local_enu(&m);
-
-  Serial.print(F("Lat: "));    Serial.print(gps.getLatitude());
-  Serial.print(F(" Lon: "));   Serial.print(gps.getLongitude());
-  Serial.print(F(" (deg*1e-7)  Alt: ")); Serial.print(gps.getAltitude());
-  Serial.print(F(" mm  SIV: ")); Serial.print(gps.getSIV());
-  Serial.print(F("  Fix: "));  Serial.print(gps.getFixType());
-
-  if (m.valid) {
-    Serial.print(F("  ENU: "));
-    Serial.print(m.x_east_m,  2); Serial.print(F("E "));
-    Serial.print(m.y_north_m, 2); Serial.print(F("N "));
-    Serial.print(m.z_up_m,    2); Serial.print(F("U (m)"));
-  } else if (m.fresh) {
-    Serial.print(F("  ENU: waiting for 3D fix"));
-  }
-
-  Serial.println();
 }

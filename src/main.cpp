@@ -3,17 +3,18 @@
 #include "../include/base.h"
 
 #include "./controller.h"
+#include "./bluetooth.h"
+#include "./flight_log.h"
 #include "./gps.h"
 #include "./imu.h"
 #include "./kalman_filter.h"
 #include "./servos.h"
-#include "./utils.h"
 
 #define I2C_SDA 1
 #define I2C_SCL 0
 
-const f32 imu_dt_default = 1.0f / imu_sample_rate_hz;
-f32 dt = imu_dt_default;
+static const f32 imu_dt_default = 1.0f / imu_sample_rate_hz;
+static f32 dt = imu_dt_default;
 
 #define CONTROL_LOG_PERIOD_MS 100
 
@@ -33,7 +34,6 @@ typedef enum {
 } flight_state_t;
 
 static flight_state_t g_state = IDLE;
-static flight_state_t g_prev_state = IDLE;
 static u32 g_state_enter_ms = 0;
 
 static const matrix *g_last_kf_state = NULL;
@@ -66,24 +66,50 @@ static const char *state_name(flight_state_t s) {
 }
 
 static void enter_state(flight_state_t next) {
-  g_prev_state = g_state;
+  const flight_state_t prev = g_state;
   g_state = next;
   g_state_enter_ms = millis();
 
-  if (next == IDLE || next == READY || next == TOUCHDOWN) {
+  if (next == IDLE) {
     set_fins_neutral();
   }
 
-  Serial.print("STATE,");
-  Serial.print((int)g_prev_state);
-  Serial.print(",");
-  Serial.print((int)g_state);
-  Serial.print(",");
-  Serial.println(state_name(g_state));
+  if (next == LIFTOFF) {
+    flog_init();
+  }
+
+  // When leaving CONTROL
+  if (prev == CONTROL && next != CONTROL) {
+    flog_close();
+    set_fins_neutral();
+  }
+
+  ble_sendf("STATE,%d,%d,%s", (int)prev, (int)next, state_name(next));
 }
 
-static b32 cmd_is(const char *cmd, const char *word) {
-  return strcmp(cmd, word) == 0;
+static void handle_cmd(const char *cmd) {
+  if (strcmp(cmd, "CALIBRATE") == 0) {
+  if (g_state == IDLE) {
+    g_last_kf_state = NULL;
+    g_last_kf_update_us = 0;
+    enter_state(CALIBRATION);
+  } else {
+    ble_send("ERROR: CALIBRATE only valid in IDLE");
+  }
+
+  } else if (strcmp(cmd, "RESET") == 0) {
+    g_last_kf_state = NULL;
+    g_last_kf_update_us = 0;
+    enter_state(IDLE);
+
+  } else if (strcmp(cmd, "DUMP") == 0) {
+    if (!flog_dump_ble()) {
+      ble_send("ERROR: DUMP failed");
+    }
+
+  } else {
+    ble_send("ERROR: Unknown command");
+  }
 }
 
 static b32 init_kalman_from_current_imu(void) {
@@ -98,12 +124,9 @@ static b32 init_kalman_from_current_imu(void) {
   matrix init_state;
   mat_create(&init_state, state_dim, 1, init_state_buf);
 
-  f32 a_body[3] = {imu_measurement.ax, imu_measurement.ay, imu_measurement.az};
-  f32 a_world[3];
-  quat_rotate(&init_q, a_body, a_world);
-  init_state.data[a_x] = a_world[0];
-  init_state.data[a_y] = a_world[1];
-  init_state.data[a_z] = a_world[2];
+  init_state.data[a_x] = imu_measurement.ax;
+  init_state.data[a_y] = imu_measurement.ay;
+  init_state.data[a_z] = imu_measurement.az;
 
   if (!kalman_filter_init(&init_state, init_q, 1.0f)) {
     return false;
@@ -115,6 +138,8 @@ static b32 init_kalman_from_current_imu(void) {
 void setup() {
   Serial.begin(115200);
   delay(500);
+
+  ble_init();
 
   Wire.begin(I2C_SDA, I2C_SCL);
   Wire.setClock(100000);
@@ -140,54 +165,38 @@ void setup() {
 
   set_fins_neutral();
   g_state = IDLE;
-  g_prev_state = IDLE;
   g_state_enter_ms = millis();
 
-  Serial.println("STATE,0,0,IDLE");
+  ble_send("STATE,0,0,IDLE");
 }
 
 void loop() {
   static u32 last_log_ms = 0;
   char cmd[64];
 
-  if (serial_read_line(cmd, (int)sizeof(cmd))) {
-    if (cmd_is(cmd, "CALIBRATE")) {
-      if (g_state == IDLE || g_state == TOUCHDOWN) {
-        g_last_kf_state = NULL;
-        g_last_kf_update_us = 0;
-        enter_state(CALIBRATION);
-      } else {
-        Serial.println("ERROR: CALIBRATE only valid in IDLE or TOUCHDOWN");
-      }
-    } else if (cmd_is(cmd, "RESET")) {
-      g_last_kf_state = NULL;
-      g_last_kf_update_us = 0;
-      enter_state(IDLE);
-    } else {
-      Serial.println("ERROR: Unknown command");
-    }
+  if (ble_poll_cmd(cmd, (u8)sizeof(cmd))) {
+    handle_cmd(cmd);
   }
 
   switch (g_state) {
   case IDLE:
     break;
 
-  // FIX: Decide where to start recording flight data
   case CALIBRATION:
     if (!imu_init()) {
-      Serial.println("ERROR: IMU init failed");
+      ble_send("ERROR: IMU init failed");
       enter_state(IDLE);
       break;
     }
 
     if (!imu_calibrate()) {
-      Serial.println("ERROR: IMU calibration failed");
+      ble_send("ERROR: IMU calibration failed");
       enter_state(IDLE);
       break;
     }
 
     if (!init_kalman_from_current_imu()) {
-      Serial.println("ERROR: Kalman init failed");
+      ble_send("ERROR: Kalman init failed");
       enter_state(IDLE);
       break;
     }
@@ -214,8 +223,6 @@ void loop() {
     const u32 now_us = micros();
     const u32 now_ms = millis();
 
-    gps_test();
-
     if (gps_read_local_enu(&gps_measurement) && gps_measurement.fresh &&
         gps_measurement.valid) {
       kalman_filter_set_gps_enu(gps_measurement.x_east_m, gps_measurement.y_north_m,
@@ -231,8 +238,7 @@ void loop() {
       dt = (f32)(now_us - g_last_kf_update_us) * 1e-6f;
       g_last_kf_update_us = now_us;
       if (dt <= 0.0f || dt > 0.1f || dt <= 1e-6f) {
-        Serial.print("Unusual calculated dt occured, if this happens too often "
-                     "something is wrong");
+        ble_send("ERROR: Unusual dt; falling back to imu_dt_default");
         dt = imu_dt_default;
       }
 
@@ -250,29 +256,38 @@ void loop() {
     if (now_ms - last_log_ms >= CONTROL_LOG_PERIOD_MS) {
       last_log_ms = now_ms;
 
-      f32 roll, pitch, yaw;
-      kalman_filter_get_euler_deg(&roll, &pitch, &yaw);
-
-      // servos_debug_write_angles(controller.fin_angle_deg);
-
-      kalman_filter_debug_print_csv_row(now_ms, imu_measurement.wx,
-                                        imu_measurement.wy, imu_measurement.wz,
-                                        g_last_kf_state);
-      controller_debug_print_csv_row(now_ms, &controller);
+      if (g_last_kf_state) {
+        const quat *q_now = kalman_filter_get_quat();
+        char line[384];
+        int w = snprintf(
+            line, sizeof(line),
+            "%lu,%.6f,%.6f,%.6f,"
+            "%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,"
+            "%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f",
+            (unsigned long)now_ms, imu_measurement.wx, imu_measurement.wy,
+            imu_measurement.wz, g_last_kf_state->data[p_x],
+            g_last_kf_state->data[p_y], g_last_kf_state->data[p_z],
+            g_last_kf_state->data[v_x], g_last_kf_state->data[v_y],
+            g_last_kf_state->data[v_z], g_last_kf_state->data[a_x],
+            g_last_kf_state->data[a_y], g_last_kf_state->data[a_z],
+            g_last_kf_state->data[d_theta], g_last_kf_state->data[d_alpha],
+            g_last_kf_state->data[d_beta], q_now->w, q_now->x, q_now->y,
+            q_now->z, controller.fin_angle_deg[0],
+            controller.fin_angle_deg[1], controller.fin_angle_deg[2],
+            controller.fin_angle_deg[3]);
+        if (w > 0) flog_write(line);
+      }
     }
 
     break;
 
     // case APOGEE:
-    // 	set_fins_neutral();
-    // 	break;
+    //   break;
     //
     // case TOUCHDOWN:
-    // 	set_fins_neutral();
-    // 	break;
+    //   break;
     //
     // default:
-    // 	enter_state(IDLE);
-    // 	break;
+    //   break;
   }
 }

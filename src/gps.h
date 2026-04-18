@@ -20,7 +20,6 @@ typedef struct {
 } gps_measurement_t;
 
 void gps_setup();
-void gps_test();
 b32 gps_read_local_enu(gps_measurement_t *out);
 
 #endif

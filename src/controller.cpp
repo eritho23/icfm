@@ -1,5 +1,7 @@
 #include "controller.h"
 
+#include "bluetooth.h"
+
 quat attitude_error(const quat *q_desired, const quat *q_current) {
   quat q_conj, q_err;
 
@@ -128,25 +130,11 @@ void controller_update(controller_t *c, f32 dt, quat *q_current,
 }
 
 void controller_debug_print_csv_row(u32 t_ms, const controller_t *c) {
-  Serial.print(t_ms);
-  Serial.print(',');
-
-  // Desired attitude
-  Serial.print(c->q_desired.w, 6);
-  Serial.print(',');
-  Serial.print(c->q_desired.x, 6);
-  Serial.print(',');
-  Serial.print(c->q_desired.y, 6);
-  Serial.print(',');
-  Serial.print(c->q_desired.z, 6);
-  Serial.print(',');
-
-  // Fin angles
-  for (int i = 0; i < 4; i++) {
-    Serial.print(c->fin_angle_deg[i], 6);
-    if (i < 3)
-      Serial.print(',');
+  if (!c) {
+    return;
   }
-
-  Serial.println();
+  ble_sendf("%lu,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f", (unsigned long)t_ms,
+            c->q_desired.w, c->q_desired.x, c->q_desired.y, c->q_desired.z,
+            c->fin_angle_deg[0], c->fin_angle_deg[1], c->fin_angle_deg[2],
+            c->fin_angle_deg[3]);
 }

@@ -6,7 +6,6 @@
 
 #include "../include/base.h"
 
-b32 serial_read_line(char *out, int max_len);
 void i2c_scan();
 
 #endif

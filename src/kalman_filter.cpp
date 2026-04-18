@@ -1,5 +1,7 @@
 #include "kalman_filter.h"
 
+#include "bluetooth.h"
+
 static const f32 Q_diag[state_dim] = {
     0.01f, 0.01f, 0.01f, // pos
     0.1f,  0.1f,  0.1f,  // vel
@@ -263,30 +265,22 @@ void kalman_filter_get_euler_deg(f32 *roll, f32 *pitch, f32 *yaw) {
 }
 
 void kalman_filter_debug_print_csv_header(void) {
-  Serial.println("t_ms,wx,wy,wz,p_x,p_y,p_z,v_x,v_y,v_z,a_x,a_y,a_z,d_theta,d_"
-                 "alpha,d_beta,q_w,q_x,q_y,q_z");
+  ble_send("t_ms,wx,wy,wz,p_x,p_y,p_z,v_x,v_y,v_z,a_x,a_y,a_z,d_theta,d_"
+           "alpha,d_beta,q_w,q_x,q_y,q_z");
 }
 
 void kalman_filter_debug_print_csv_row(u32 t_ms, f32 wx, f32 wy, f32 wz,
                                        const matrix *state) {
-  Serial.print(t_ms);
-  Serial.print(',');
-  Serial.print(wx, 6);
-  Serial.print(',');
-  Serial.print(wy, 6);
-  Serial.print(',');
-  Serial.print(wz, 6);
-  for (int i = 0; i < state_dim; i++) {
-    Serial.print(',');
-    Serial.print(state->data[i], 6);
+  if (!state) {
+    return;
   }
-  Serial.print(',');
-  Serial.print(kf.q_ref.w, 6);
-  Serial.print(',');
-  Serial.print(kf.q_ref.x, 6);
-  Serial.print(',');
-  Serial.print(kf.q_ref.y, 6);
-  Serial.print(',');
-  Serial.print(kf.q_ref.z, 6);
-  Serial.println();
+  ble_sendf(
+      "%lu,%.6f,%.6f,%.6f,"
+      "%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,"
+      "%.6f,%.6f,%.6f,%.6f",
+      (unsigned long)t_ms, wx, wy, wz, state->data[p_x], state->data[p_y],
+      state->data[p_z], state->data[v_x], state->data[v_y], state->data[v_z],
+      state->data[a_x], state->data[a_y], state->data[a_z],
+      state->data[d_theta], state->data[d_alpha], state->data[d_beta],
+      kf.q_ref.w, kf.q_ref.x, kf.q_ref.y, kf.q_ref.z);
 }
