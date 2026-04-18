@@ -16,6 +16,10 @@
 static const f32 imu_dt_default = 1.0f / imu_sample_rate_hz;
 static f32 dt = imu_dt_default;
 
+static f32 g_acceleration = -9.82;
+
+#define LIFTOFF_ACCELERATION_TRIGGER 4
+
 #define CONTROL_LOG_PERIOD_MS 100
 
 static imu_measurement_t imu_measurement;
@@ -117,6 +121,9 @@ static b32 init_kalman_from_current_imu(void) {
     return false;
   }
 
+  // Gravity reference value
+  g_acceleration = imu_measurement.ax;
+
   // Build init state matrix
   quat init_q = {1.0f, 0.0f, 0.0f, 0.0f};
 
@@ -206,15 +213,19 @@ void loop() {
     break;
 
   case READY:
-    // NOTE: Just go to next state for now
-    enter_state(LIFTOFF);
-
-    // TODO: Detect liftoff via gps i suppose, then go to liftoff state
+    if (get_imu_data(&imu_measurement)) {
+      if (imu_measurement.ax > g_acceleration + LIFTOFF_ACCELERATION_TRIGGER) enter_state(LIFTOFF);
+    }
 
     break;
   case LIFTOFF:
-    // NOTE: Just go to next state for now
-    enter_state(CONTROL);
+    // NOTE: We do not want to attempt to control the rocket during this high acceleration phase.
+    //       Checking for velocity or altitude is unreliable. Therefore we hardcode a timer.
+    //       This minimizes the risk of the statelock.
+
+    if (millis() - g_state_enter_ms >= 1500) {
+      enter_state(CONTROL);
+    }
 
     break;
 
