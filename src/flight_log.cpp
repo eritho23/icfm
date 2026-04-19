@@ -38,7 +38,7 @@ void flog_init(void) {
     return;
   }
 
-  g_open           = true;
+  g_open = true;
   g_rows_unflushed = 0;
 
   g_file.println("t_ms,wx,wy,wz,p_x,p_y,p_z,v_x,v_y,v_z,a_x,a_y,a_z,d_theta,"

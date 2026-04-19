@@ -3,8 +3,6 @@
 #include "bluetooth.h"
 
 SFE_UBLOX_GNSS gps;
-long last_time =
-    0; // Simple local timer. Limits amount of I2C traffic to u-blox module.
 
 static b32 g_has_origin = false;
 static double g_lat0_rad = 0.0;
@@ -49,7 +47,7 @@ b32 gps_read_local_enu(gps_measurement_t *out) {
   out->valid = false;
   out->fresh = false;
 
-  if (!gps.getPVT()) return true;
+  if (!gps.getPVT(0)) return true;
   
   const u32 i_tow_ms = (u32)gps.getTimeOfWeek();
   if (i_tow_ms == g_last_i_tow_ms) return true;
