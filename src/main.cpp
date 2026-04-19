@@ -220,38 +220,38 @@ void loop() {
 
     break;
 
-    case READY: {
-        const u32 now_ms = millis();
+  case READY: {
+	const u32 now_ms = millis();
 
-        if (get_imu_data(&imu_measurement)) {
-            if (imu_measurement.ax > g_acceleration + LIFTOFF_ACCELERATION_TRIGGER) {
-                enter_state(LIFTOFF);
-                break;
-            }
-
-            // Periodic sensor health report over BLE
-            static u32 last_ready_log_ms = 0;
-            if (now_ms - last_ready_log_ms >= 500) {
-                last_ready_log_ms = now_ms;
-
-                ble_sendf("IMU,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f",
-                          imu_measurement.ax, imu_measurement.ay, imu_measurement.az,
-                          imu_measurement.wx, imu_measurement.wy, imu_measurement.wz);
-
-                gps_measurement_t gps;
-                if (gps_read_local_enu(&gps) && gps.fresh) {
-                    if (gps.valid) {
-                        ble_sendf("GPS,%.2f,%.2f,%.2f",
-                                  gps.x_east_m, gps.y_north_m, gps.z_up_m);
-                    } else {
-                        ble_send("GPS,NO_FIX");
-                    }
-                }
-            }
-        }
-
+    if (get_imu_data(&imu_measurement)) {
+      if (imu_measurement.ax > g_acceleration + LIFTOFF_ACCELERATION_TRIGGER) {
+        enter_state(LIFTOFF);
         break;
+      }
+
+      // Periodic sensor health report over BLE
+      static u32 last_ready_log_ms = 0;
+      if (now_ms - last_ready_log_ms >= 500) {
+        last_ready_log_ms = now_ms;
+
+        ble_sendf("IMU,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f",
+                imu_measurement.ax, imu_measurement.ay, imu_measurement.az,
+                imu_measurement.wx, imu_measurement.wy, imu_measurement.wz);
+
+        gps_measurement_t gps;
+        if (gps_read_local_enu(&gps) && gps.fresh) {
+          if (gps.valid) {
+            ble_sendf("GPS,%.2f,%.2f,%.2f",
+                        gps.x_east_m, gps.y_north_m, gps.z_up_m);
+          } else {
+            ble_send("GPS,NO_FIX");
+          }
+        }
+      }
     }
+
+    break;
+  }
   case LIFTOFF:
     // NOTE: We do not want to attempt to control the rocket during this high acceleration phase.
     //       Checking for velocity or altitude is unreliable. Therefore we hardcode a timer.

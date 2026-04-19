@@ -68,6 +68,7 @@ void ble_init(void) {
     BLE_LOG_CHAR_UUID,
     BLECharacteristic::PROPERTY_NOTIFY
   );
+  g_log_char->addDescriptor(new BLE2902());
 
   svc->start();
   BLEDevice::getAdvertising()->start();
