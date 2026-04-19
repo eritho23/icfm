@@ -12,12 +12,12 @@ extern SFE_UBLOX_GNSS gps;
 extern long last_time;
 
 typedef struct {
-  f32 x_east_m;
-  f32 y_north_m;
-  f32 z_up_m;
-  u32 i_tow_ms;
-  b32 valid;
-  b32 fresh;
+    f32 x_east_m;
+    f32 y_north_m;
+    f32 z_up_m;
+    u32 i_tow_ms;
+    b32 valid;
+    b32 fresh;
 } gps_measurement_t;
 
 void gps_setup();

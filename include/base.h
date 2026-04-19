@@ -1,11 +1,11 @@
 #ifndef ICFM_BASE_H
-#define ICFM_BASE_H 
+#define ICFM_BASE_H
 
-#include <stdio.h>
-#include <stdint.h>
-#include <stdbool.h>
-#include <string.h>
 #include <math.h>
+#include <stdbool.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <string.h>
 
 typedef int8_t i8;
 typedef int16_t i16;

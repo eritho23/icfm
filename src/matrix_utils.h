@@ -4,14 +4,14 @@
 #include "../include/base.h"
 
 typedef struct {
-  u32 rows, cols;
-  // Row-major
-  f32 *data;
+    u32 rows, cols;
+    // Row-major
+    f32 *data;
 } matrix;
 
 #define MAT(name, r, c)                                                        \
-  f32 name##_buf[(u32)(r) * (u32)(c)];                                         \
-  matrix name
+    f32 name##_buf[(u32)(r) * (u32)(c)];                                       \
+    matrix name
 
 // buf must point to a caller-owned f32[rows * cols] buffer.
 void mat_create(matrix *mat, u32 rows, u32 cols, f32 *buf);

@@ -10,8 +10,8 @@
 #include "./bluetooth.h"
 
 typedef struct {
-  f32 ax, ay, az; // raw accleration
-  f32 wx, wy, wz; // raw gyro rates
+    f32 ax, ay, az; // raw accleration
+    f32 wx, wy, wz; // raw gyro rates
 } imu_measurement_t;
 
 extern f32 imu_sample_rate_hz;
