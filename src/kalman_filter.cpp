@@ -1,17 +1,15 @@
 #include "kalman_filter.h"
 
-#include "bluetooth.h"
-
 static const f32 Q_diag[state_dim] = {
-    0.01f, 0.01f, 0.01f, // pos
-    0.1f,  0.1f,  0.1f,  // vel
-    0.3f,  0.3f,  0.3f,  // acc, thrust/drag are highly unpredictable
-    1e-3f, 1e-3f, 1e-3f, // delta_theta,
+    1.0f,  1.0f,  1.0f,  // pos
+    1.0f,  1.0f,  1.0f,  // vel
+    0.5f,  0.5f,  50.0f,  // acc
+    1e-3f, 1e-3f, 1e-3f, // delta_theta
 };
 
 static const f32 R_diag[m_dim] = {
-    1.5f, 1.5f, 4.0f, // gps (metres)
-    0.1f, 0.1f, 0.1f, // acc (m/s^2)
+    2.0f,  2.0f,  5.0f, // gps (metres)
+    1.0f,  1.0f,  1.0f // acc (m/s^2)
 };
 
 typedef struct {
@@ -63,35 +61,40 @@ static inline void set_F(state_index r, state_index c, f32 v) {
 */
 static void _build_F(f32 dt, f32 wx, f32 wy, f32 wz) {
   mat_clear(&kf.F);
-  const f32 d2 = 0.5f * dt * dt;
 
+  // Position integrates velocity only, not acceleration
   set_F(p_x, p_x, 1);
   set_F(p_x, v_x, dt);
-  set_F(p_x, a_x, d2);
+  // set_F(p_x, a_x, d2);
   set_F(p_y, p_y, 1);
   set_F(p_y, v_y, dt);
-  set_F(p_y, a_y, d2);
+  // set_F(p_y, a_y, d2);
   set_F(p_z, p_z, 1);
   set_F(p_z, v_z, dt);
-  set_F(p_z, a_z, d2);
+  // set_F(p_z, a_z, d2);
+
+  // Only gps adjusts velocity
   set_F(v_x, v_x, 1);
-  set_F(v_x, a_x, dt);
+  // set_F(v_x, a_x, dt);
   set_F(v_y, v_y, 1);
-  set_F(v_y, a_y, dt);
+  // set_F(v_y, a_y, dt);
   set_F(v_z, v_z, 1);
-  set_F(v_z, a_z, dt);
+  // set_F(v_z, a_z, dt);
+
   set_F(a_x, a_x, 1);
   set_F(a_y, a_y, 1);
   set_F(a_z, a_z, 1);
+
+  // Attitude error
   set_F(d_theta, d_theta, 1);
-  set_F(d_theta, d_alpha, wz * dt);
-  set_F(d_theta, d_beta, -wy * dt);
+  set_F(d_theta, d_alpha,  wz * dt);
+  set_F(d_theta, d_beta,  -wy * dt);
   set_F(d_alpha, d_theta, -wz * dt);
-  set_F(d_alpha, d_alpha, 1);
-  set_F(d_alpha, d_beta, wx * dt);
-  set_F(d_beta, d_theta, wy * dt);
-  set_F(d_beta, d_alpha, -wx * dt);
-  set_F(d_beta, d_beta, 1);
+  set_F(d_alpha, d_alpha,  1);
+  set_F(d_alpha, d_beta,   wx * dt);
+  set_F(d_beta,  d_theta,  wy * dt);
+  set_F(d_beta,  d_alpha, -wx * dt);
+  set_F(d_beta,  d_beta,   1);
 }
 
 static void _build_H(b32 use_gps) {
@@ -103,7 +106,8 @@ static void _build_H(b32 use_gps) {
   }
   kf.H.data[(u32)m_acc_x * state_dim + a_x] = 1.0f;
   kf.H.data[(u32)m_acc_y * state_dim + a_y] = 1.0f;
-  kf.H.data[(u32)m_acc_z * state_dim + a_z] = 1.0f;
+  // NOTE: Do not use vertical acceleration since we cannot know due to gravity and rocket thrust being in the same axis.
+  // kf.H.data[(u32)m_acc_z * state_dim + a_z] = 1.0f;
 }
 
 static void _build_I(void) {
@@ -214,6 +218,9 @@ b32 kalman_filter_init(const matrix *init_state, quat init_q,
 
   // Initial state and quaternion
   mat_copy(&kf.x_posterior, init_state);
+  kf.x_posterior.data[a_x] = 0.0f;
+  kf.x_posterior.data[a_y] = 0.0f;
+  kf.x_posterior.data[a_z] = 0.0f;
   kf.q_ref = init_q;
   quat_normalise(&kf.q_ref);
   kf.gps_fresh = false;
@@ -237,7 +244,7 @@ void kalman_filter_rotate_accel(f32 ax_b, f32 ay_b, f32 az_b) {
   quat_rotate(&kf.q_ref, a_body, a_world);
   kf.z.data[m_acc_x] = a_world[0];
   kf.z.data[m_acc_y] = a_world[1];
-  kf.z.data[m_acc_z] = a_world[2];
+  // kf.z.data[m_acc_z] = a_world[2];
 }
 
 void kalman_filter_set_gps_enu(f32 x_east, f32 y_north, f32 z_up) {

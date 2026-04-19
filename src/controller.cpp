@@ -1,7 +1,5 @@
 #include "controller.h"
 
-#include "bluetooth.h"
-
 static quat g_q_prev = {1, 0, 0, 0};
 static b32 g_q_prev_valid = false;
 

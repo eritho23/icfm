@@ -145,6 +145,16 @@ const quaternionState = { w: 1, x: 0, y: 0, z: 0 };
 const finAnglesState = { values: [0, 0, 0, 0] };
 const altState = { values: [] as number[] };
 const speedState = { values: [] as number[] };
+const posState = {
+	x: [] as number[],
+	y: [] as number[],
+	z: [] as number[],
+};
+const velState = {
+	x: [] as number[],
+	y: [] as number[],
+	z: [] as number[],
+};
 const attState = {
 	roll: [] as number[],
 	pitch: [] as number[],
@@ -201,6 +211,12 @@ function handleKalmanData(data: KalmanData) {
 	);
 
 	pushLimited(timeSeriesState.values, data.t_s);
+	pushLimited(posState.x, data.p_x);
+	pushLimited(posState.y, data.p_y);
+	pushLimited(posState.z, data.p_z);
+	pushLimited(velState.x, data.v_x);
+	pushLimited(velState.y, data.v_y);
+	pushLimited(velState.z, data.v_z);
 	pushLimited(altState.values, data.p_z);
 	pushLimited(speedState.values, speed);
 	pushLimited(attState.roll, roll);
@@ -446,6 +462,8 @@ $effect(() => {
 				{liveState}
 				{timeState}
 				{timeSeriesState}
+				{posState}
+				{velState}
 				{altState}
 				{speedState}
 				{attState}

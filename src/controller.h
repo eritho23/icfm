@@ -4,6 +4,7 @@
 #include "../include/base.h"
 #include "./kalman_filter.h"
 #include "./quaternion_utils.h"
+#include "./bluetooth.h"
 
 #define MAX_FIN_DEFLECTION_DEG 30.0f
 

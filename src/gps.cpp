@@ -1,7 +1,5 @@
 #include "gps.h"
 
-#include "bluetooth.h"
-
 SFE_UBLOX_GNSS gps;
 
 static b32 g_has_origin = false;

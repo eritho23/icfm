@@ -7,6 +7,7 @@
 #include <Wire.h>
 
 #include "../include/base.h"
+#include "./bluetooth.h"
 
 typedef struct {
   f32 ax, ay, az; // raw accleration

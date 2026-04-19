@@ -221,12 +221,36 @@ void loop() {
     break;
 
   case READY: {
-	const u32 now_ms = millis();
+    const u32 now_ms = millis();
+    const u32 now_us = micros();
+
+    if (gps_read_local_enu(&gps_measurement) &&
+      gps_measurement.fresh && gps_measurement.valid) {
+      kalman_filter_set_gps_enu(gps_measurement.x_east_m,
+                              gps_measurement.y_north_m,
+                              gps_measurement.z_up_m);
+    }
 
     if (get_imu_data(&imu_measurement)) {
       if (imu_measurement.ax > g_acceleration + LIFTOFF_ACCELERATION_TRIGGER) {
         enter_state(LIFTOFF);
         break;
+      }
+
+      if (g_last_kf_update_us == 0) {
+        g_last_kf_update_us = now_us;
+      } else {
+        dt = (f32)(now_us - g_last_kf_update_us) * 1e-6f;
+        g_last_kf_update_us = now_us;
+        if (dt <= 0.0f || dt > 0.1f || dt <= 1e-6f) {
+          ble_send("Unusual dt, falling back to imu_dt_default");
+          dt = imu_dt_default;
+        }
+
+        kalman_filter_rotate_accel(imu_measurement.ax, imu_measurement.ay,
+                                   imu_measurement.az);
+        g_last_kf_state = kalman_filter_update(
+            dt, imu_measurement.wx, imu_measurement.wy, imu_measurement.wz);
       }
 
       // Periodic sensor health report over BLE
@@ -247,6 +271,26 @@ void loop() {
             ble_send("GPS,NO_FIX");
           }
         }
+      }
+
+      static u32 last_ready_kalman_log_ms = 0;
+      if (now_ms - last_ready_kalman_log_ms >= LOG_PERIOD_MS &&
+          g_last_kf_state) {
+        last_ready_kalman_log_ms = now_ms;
+        const quat *q_now = kalman_filter_get_quat();
+        ble_sendf(
+            "%lu,%.6f,%.6f,%.6f,"
+            "%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,"
+            "%.6f,%.6f,%.6f,%.6f",
+            (unsigned long)now_ms, imu_measurement.wx, imu_measurement.wy,
+            imu_measurement.wz, g_last_kf_state->data[p_x],
+            g_last_kf_state->data[p_y], g_last_kf_state->data[p_z],
+            g_last_kf_state->data[v_x], g_last_kf_state->data[v_y],
+            g_last_kf_state->data[v_z], g_last_kf_state->data[a_x],
+            g_last_kf_state->data[a_y], g_last_kf_state->data[a_z],
+            g_last_kf_state->data[d_theta], g_last_kf_state->data[d_alpha],
+            g_last_kf_state->data[d_beta], q_now->w, q_now->x, q_now->y,
+            q_now->z);
       }
     }
 

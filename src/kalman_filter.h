@@ -4,6 +4,7 @@
 #include <Arduino.h>
 
 #include "../include/base.h"
+#include "./bluetooth.h"
 #include "./matrix_utils.h"
 #include "./quaternion_utils.h"
 

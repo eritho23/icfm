@@ -8,6 +8,8 @@ let {
 	liveState,
 	timeState,
 	timeSeriesState,
+	posState,
+	velState,
 	altState,
 	speedState,
 	attState,
@@ -17,6 +19,8 @@ let {
 	liveState: { value: boolean };
 	timeState: { value: number };
 	timeSeriesState: { values: number[] };
+	posState: { x: number[]; y: number[]; z: number[] };
+	velState: { x: number[]; y: number[]; z: number[] };
 	altState: { values: number[] };
 	speedState: { values: number[] };
 	attState: { roll: number[]; pitch: number[]; yaw: number[] };
@@ -27,6 +31,42 @@ let {
 const maxPoints = 200;
 
 const panels = [
+	{
+		key: "px",
+		label: "p_x",
+		color: "#3566c9",
+		series: () => posState.x,
+	},
+	{
+		key: "py",
+		label: "p_y",
+		color: "#3f8f5a",
+		series: () => posState.y,
+	},
+	{
+		key: "pz",
+		label: "p_z",
+		color: "#c2553d",
+		series: () => posState.z,
+	},
+	{
+		key: "vx",
+		label: "v_x",
+		color: "#2f52a4",
+		series: () => velState.x,
+	},
+	{
+		key: "vy",
+		label: "v_y",
+		color: "#2f7b4b",
+		series: () => velState.y,
+	},
+	{
+		key: "vz",
+		label: "v_z",
+		color: "#a24430",
+		series: () => velState.z,
+	},
 	{
 		key: "alt",
 		label: "Altitude",
@@ -54,7 +94,7 @@ const panels = [
 	{
 		key: "yaw",
 		label: "Yaw",
-		color: "#9467bd",
+		color: "#94675d",
 		series: () => attState.yaw,
 	},
 	{
@@ -78,7 +118,7 @@ const panels = [
 ] as const;
 
 let canvasEls = $state<(HTMLCanvasElement | null)[]>(
-	Array.from({ length: 8 }, () => null),
+	Array.from({ length: panels.length }, () => null),
 );
 
 function createChart(canvas: HTMLCanvasElement, label: string, color: string) {

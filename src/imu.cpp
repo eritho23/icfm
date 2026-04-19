@@ -1,7 +1,5 @@
 #include "imu.h"
 
-#include "bluetooth.h"
-
 static Adafruit_ISM330DHCX imu;
 
 f32 imu_sample_rate_hz;

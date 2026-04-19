@@ -5,8 +5,8 @@
 #include <LittleFS.h>
 #include <stdarg.h>
 
-#include "bluetooth.h"
 #include "../include/base.h"
+#include "./bluetooth.h"
 
 void flog_init(void);
 void flog_write(const char *line);

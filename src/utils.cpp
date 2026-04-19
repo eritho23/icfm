@@ -1,7 +1,5 @@
 #include "./utils.h"
 
-#include "./bluetooth.h"
-
 void i2c_scan() {
   ble_send("I2C scan start");
   u8 found = 0;

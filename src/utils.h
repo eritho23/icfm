@@ -5,6 +5,7 @@
 #include <Wire.h>
 
 #include "../include/base.h"
+#include "./bluetooth.h"
 
 void i2c_scan();
 

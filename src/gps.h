@@ -6,6 +6,7 @@
 #include <math.h>
 
 #include "../include/base.h"
+#include "./bluetooth.h"
 
 extern SFE_UBLOX_GNSS gps;
 extern long last_time;
