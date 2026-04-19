@@ -13,8 +13,8 @@
 #define I2C_SDA 1
 #define I2C_SCL 0
 
-static const f32 imu_dt_default = 1.0f / imu_sample_rate_hz;
-static f32 dt = imu_dt_default;
+static f32 imu_dt_default = 1.0f / 104.0f;
+static f32 dt = 1.0f / 104.0f;
 
 static f32 g_acceleration = -9.82;
 
@@ -84,6 +84,11 @@ static void enter_state(flight_state_t next) {
     if (next == LIFTOFF) {
         flog_init();
         g_log_closed = false;
+    }
+
+    if (next == CONTROL) {
+        // Re-prime dt timing at mode boundary to avoid transition spikes.
+        g_last_kf_update_us = 0;
     }
 
     // When leaving CONTROL
@@ -204,6 +209,11 @@ void loop() {
             break;
         }
 
+        if (imu_sample_rate_hz > 0.0f) {
+            imu_dt_default = 1.0f / imu_sample_rate_hz;
+            dt = imu_dt_default;
+        }
+
         if (!imu_calibrate()) {
             ble_send("ERROR: IMU calibration failed");
             enter_state(IDLE);
@@ -243,11 +253,10 @@ void loop() {
             } else {
                 dt = (f32)(now_us - g_last_kf_update_us) * 1e-6f;
                 g_last_kf_update_us = now_us;
-                if (dt <= 0.0f || dt > 0.1f || dt <= 1e-6f) {
-                    ble_send("Unusual dt, falling back to "
-                             "imu_dt_default");
-                    dt = imu_dt_default;
-                }
+				if (dt < 0.001f || dt > 0.1f) {
+					ble_send("Unusual dt, falling back to imu_dt_default");
+					dt = imu_dt_default;
+				}
 
                 kalman_filter_rotate_accel(
                     imu_measurement.ax, imu_measurement.ay, imu_measurement.az);
@@ -343,11 +352,10 @@ void loop() {
 
             dt = (f32)(now_us - g_last_kf_update_us) * 1e-6f;
             g_last_kf_update_us = now_us;
-            if (dt <= 0.0f || dt > 0.1f || dt <= 1e-6f) {
-                ble_send("Unusual dt, falling back to "
-                         "imu_dt_default");
-                dt = imu_dt_default;
-            }
+			if (dt < 0.001f || dt > 0.1f) {  // reject anything under 1ms or over 100ms
+				ble_send("Unusual dt, falling back to imu_dt_default");
+				dt = imu_dt_default;
+			}
 
             kalman_filter_rotate_accel(imu_measurement.ax, imu_measurement.ay,
                                        imu_measurement.az);

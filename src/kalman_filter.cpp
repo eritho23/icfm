@@ -150,7 +150,7 @@ static void _predict(f32 dt, f32 wx, f32 wy, f32 wz) {
     mat_add(&kf.p_prior, &kf.p_prior, &kf.Q);
 }
 
-static void _compute_gain(void) {
+static b32 _compute_gain(void) {
     // S = H * P_prior * H^T + R
     mat_mul_nt(&kf.PHt, &kf.p_prior, &kf.H);
     mat_mul_nn(&kf.S, &kf.H, &kf.PHt);
@@ -160,10 +160,13 @@ static void _compute_gain(void) {
     for (int i = 0; i < m_dim; i++)
         kf.S.data[i * m_dim + i] += 1e-6f;
 
-    mat_inverse(&kf.S, &kf.S);
+  if (!mat_inverse(&kf.S, &kf.S)) {
+    return false;
+  }
 
     // K = P_prior * H^T * S^-1 = PH^T * S^-1
-    mat_mul_nn(&kf.K, &kf.PHt, &kf.S);
+  mat_mul_nn(&kf.K, &kf.PHt, &kf.S);
+  return true;
 }
 
 static void _update_state(void) {
@@ -256,13 +259,18 @@ void kalman_filter_set_gps_enu(f32 x_east, f32 y_north, f32 z_up) {
 }
 
 matrix *kalman_filter_update(f32 dt, f32 wx, f32 wy, f32 wz) {
-    _build_H(kf.gps_fresh);
-    _predict(dt, wx, wy, wz);
-    _compute_gain();
+  _build_H(kf.gps_fresh);
+  _predict(dt, wx, wy, wz);
+  if (_compute_gain()) {
     _update_state();
     _update_covariance();
-    kf.gps_fresh = false;
-    return &kf.x_posterior;
+  } else {
+    // If innovation covariance is singular, keep prediction-only estimate.
+    mat_copy(&kf.x_posterior, &kf.x_prior);
+    mat_copy(&kf.p_posterior, &kf.p_prior);
+  }
+  kf.gps_fresh = false;
+  return &kf.x_posterior;
 }
 
 matrix *kalman_filter_get_z(void) { return &kf.z; }
