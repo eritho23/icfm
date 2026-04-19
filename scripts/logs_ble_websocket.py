@@ -221,7 +221,7 @@ async def telemetry_server():
                     continue
 
                 cmd = str(msg.get("cmd", "")).strip().upper()
-                if cmd not in ("CALIBRATE", "RESET", "DUMP"):
+                if cmd not in ("CALIBRATE", "RESET", "DUMP", "STOPLOG"):
                     await ws.send(
                         json.dumps(
                             {

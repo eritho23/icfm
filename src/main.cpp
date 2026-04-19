@@ -23,7 +23,7 @@ static f32 g_acceleration = -9.82;
 #define LOG_PERIOD_MS 100
 #define FLIGHT_LOG_TIME_MS (8UL * 60UL * 1000UL) // 8 minutes
 
-static b32 g_log_closed = false;
+static b32 g_log_closed = true;
 
 static imu_measurement_t imu_measurement;
 static gps_measurement_t gps_measurement;
@@ -118,14 +118,22 @@ static void handle_cmd(const char *cmd) {
         gps_reset_origin();
         enter_state(IDLE);
 
-    } else if (strcmp(cmd, "DUMP") == 0) {
-        if (!flog_dump_ble()) {
-            ble_send("ERROR: DUMP failed");
-        }
-
-    } else {
-        ble_send("ERROR: Unknown command");
+  } else if (strcmp(cmd, "DUMP") == 0) {
+    if (!flog_dump_ble()) {
+      ble_send("ERROR: DUMP failed");
     }
+
+  } else if (strcmp(cmd, "STOPLOG") == 0) {
+    if (g_log_closed) {
+      ble_send("LOG: already closed");
+    } else {
+      flog_close();
+      g_log_closed = true;
+    }
+
+  } else {
+    ble_send("ERROR: Unknown command");
+  }
 }
 
 static b32 init_kalman_from_current_imu(void) {

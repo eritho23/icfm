@@ -1,409 +1,413 @@
 <script lang="ts">
-import { onDestroy, onMount, tick } from "svelte";
-import { linear } from "svelte/easing";
-import { fly } from "svelte/transition";
-import type { TransitionConfig } from "svelte/transition";
-import EyeClosed from "lucide-svelte/icons/eye-closed";
-import ChevronsLeftRight from "lucide-svelte/icons/chevrons-left-right";
-import ChevronsRightLeft from "lucide-svelte/icons/chevrons-right-left";
-import PlugZap from "lucide-svelte/icons/plug-zap";
-import RefreshCcw from "lucide-svelte/icons/refresh-ccw";
-import Snowflake from "lucide-svelte/icons/snowflake";
-import RocketCanvas from "$lib/RocketCanvas.svelte";
-import TelemetryCharts from "$lib/TelemetryCharts.svelte";
+	import { onDestroy, onMount, tick } from "svelte";
+	import { linear } from "svelte/easing";
+	import { fly } from "svelte/transition";
+	import type { TransitionConfig } from "svelte/transition";
+	import EyeClosed from "lucide-svelte/icons/eye-closed";
+	import ChevronsLeftRight from "lucide-svelte/icons/chevrons-left-right";
+	import ChevronsRightLeft from "lucide-svelte/icons/chevrons-right-left";
+	import PlugZap from "lucide-svelte/icons/plug-zap";
+	import RefreshCcw from "lucide-svelte/icons/refresh-ccw";
+	import Snowflake from "lucide-svelte/icons/snowflake";
+	import RocketCanvas from "$lib/RocketCanvas.svelte";
+	import TelemetryCharts from "$lib/TelemetryCharts.svelte";
 
-type Metrics = Record<string, string>;
+	type Metrics = Record<string, string>;
 
-type KalmanData = {
-	t_s: number;
-	p_x: number;
-	p_y: number;
-	p_z: number;
-	v_x: number;
-	v_y: number;
-	v_z: number;
-	a_x: number;
-	a_y: number;
-	a_z: number;
-	wx: number;
-	wy: number;
-	wz: number;
-	d_theta: number;
-	d_alpha: number;
-	d_beta: number;
-	q_w: number;
-	q_x: number;
-	q_y: number;
-	q_z: number;
-};
+	type KalmanData = {
+		t_s: number;
+		p_x: number;
+		p_y: number;
+		p_z: number;
+		v_x: number;
+		v_y: number;
+		v_z: number;
+		a_x: number;
+		a_y: number;
+		a_z: number;
+		wx: number;
+		wy: number;
+		wz: number;
+		d_theta: number;
+		d_alpha: number;
+		d_beta: number;
+		q_w: number;
+		q_x: number;
+		q_y: number;
+		q_z: number;
+	};
 
-type CtrlData = { fin0: number; fin1: number; fin2: number; fin3: number };
-type Tab = "space" | "graphs" | "serial";
-type WsState = "connecting" | "connected" | "disconnected" | "error";
+	type CtrlData = { fin0: number; fin1: number; fin2: number; fin3: number };
+	type Tab = "space" | "graphs" | "serial";
+	type WsState = "connecting" | "connected" | "disconnected" | "error";
 
-type TelemetryMessage =
-	| { type: "serial_raw"; line?: string }
-	| { type: "command_ack"; ok?: boolean; cmd?: string; reason?: string }
-	| { type: "kalman"; data: KalmanData }
-	| { type: "ctrl"; data: CtrlData };
+	type TelemetryMessage =
+		| { type: "serial_raw"; line?: string }
+		| { type: "command_ack"; ok?: boolean; cmd?: string; reason?: string }
+		| { type: "kalman"; data: KalmanData }
+		| { type: "ctrl"; data: CtrlData };
 
-const metricKeys = [
-	"p_x",
-	"p_y",
-	"p_z",
-	"v_x",
-	"v_y",
-	"v_z",
-	"a_x",
-	"a_y",
-	"a_z",
-	"wx",
-	"wy",
-	"wz",
-	"d_theta",
-	"d_alpha",
-	"d_beta",
-	"q_w",
-	"q_x",
-	"q_y",
-	"q_z",
-	"fin0",
-	"fin1",
-	"fin2",
-	"fin3",
-] as const;
+	const metricKeys = [
+		"p_x",
+		"p_y",
+		"p_z",
+		"v_x",
+		"v_y",
+		"v_z",
+		"a_x",
+		"a_y",
+		"a_z",
+		"wx",
+		"wy",
+		"wz",
+		"d_theta",
+		"d_alpha",
+		"d_beta",
+		"q_w",
+		"q_x",
+		"q_y",
+		"q_z",
+		"fin0",
+		"fin1",
+		"fin2",
+		"fin3",
+	] as const;
 
-const maxSamples = 1200;
-const serialMaxChars = 200_000;
-const kalmanColsLen = 20;
-const ctrlColsLen = 9;
-const websocketUrl = "ws://localhost:8765";
-const navTabs: Array<{ id: Tab; label: string }> = [
-	{ id: "space", label: "Space" },
-	{ id: "graphs", label: "Graphs" },
-	{ id: "serial", label: "Serial" },
-];
-const kalmanMetricKeys = [
-	"p_x",
-	"p_y",
-	"p_z",
-	"v_x",
-	"v_y",
-	"v_z",
-	"a_x",
-	"a_y",
-	"a_z",
-	"wx",
-	"wy",
-	"wz",
-	"d_theta",
-	"d_alpha",
-	"d_beta",
-	"q_w",
-	"q_x",
-	"q_y",
-	"q_z",
-] as const;
+	const maxSamples = 1200;
+	const serialMaxChars = 200_000;
+	const kalmanColsLen = 20;
+	const ctrlColsLen = 9;
+	const websocketUrl = "ws://localhost:8765";
+	const navTabs: Array<{ id: Tab; label: string }> = [
+		{ id: "space", label: "Space" },
+		{ id: "graphs", label: "Graphs" },
+		{ id: "serial", label: "Serial" },
+	];
+	const kalmanMetricKeys = [
+		"p_x",
+		"p_y",
+		"p_z",
+		"v_x",
+		"v_y",
+		"v_z",
+		"a_x",
+		"a_y",
+		"a_z",
+		"wx",
+		"wy",
+		"wz",
+		"d_theta",
+		"d_alpha",
+		"d_beta",
+		"q_w",
+		"q_x",
+		"q_y",
+		"q_z",
+	] as const;
 
-const transitionInDuration = 120;
-const transitionOutDuration = 20;
-const swipeDistance = 30;
+	const transitionInDuration = 120;
+	const transitionOutDuration = 20;
+	const swipeDistance = 30;
 
-// Out-transition: immediately lifts the departing element out of normal
-// flow so it doesn't push or resize the incoming tab, then flies it away.
-function flyOut(node: HTMLElement, params: { x: number }): TransitionConfig {
-	node.style.position = "absolute";
-	node.style.top = "0";
-	node.style.left = "0";
-	node.style.right = "0";
-	node.style.pointerEvents = "none";
-	return fly(node, {
-		x: params.x,
-		opacity: 0,
-		duration: transitionOutDuration,
-		easing: linear,
-	});
-}
-
-let tab = $state<Tab>("space");
-let tabDirection = $state<1 | -1>(1);
-let wsState = $state<WsState>("connecting");
-let commandStatus = $state("Awaiting command");
-let serialText = $state("");
-let missionTime = $state(0);
-let metrics = $state<Metrics>(
-	Object.fromEntries(metricKeys.map((key) => [key, "-"])),
-);
-let serialViewport = $state<HTMLDivElement | null>(null);
-let hideInterpreted = $state(false);
-let autoScrollEnabled = $state(true);
-let metricsExpanded = $state(false);
-
-const liveState = { value: false };
-const timeState = { value: 0 };
-const quaternionState = { w: 1, x: 0, y: 0, z: 0 };
-const finAnglesState = { values: [0, 0, 0, 0] };
-const altState = { values: [] as number[] };
-const speedState = { values: [] as number[] };
-const posState = {
-	x: [] as number[],
-	y: [] as number[],
-	z: [] as number[],
-};
-const velState = {
-	x: [] as number[],
-	y: [] as number[],
-	z: [] as number[],
-};
-const attState = {
-	roll: [] as number[],
-	pitch: [] as number[],
-	yaw: [] as number[],
-};
-const timeSeriesState = { values: [] as number[] };
-const accState = {
-	x: [] as number[],
-	y: [] as number[],
-	z: [] as number[],
-};
-const finState = {
-	fin0: [] as number[],
-	fin1: [] as number[],
-	fin2: [] as number[],
-	fin3: [] as number[],
-};
-let frozenState = $state({ value: false });
-
-let ws: WebSocket | null = null;
-
-function setConnectionState(state: WsState) {
-	wsState = state;
-	liveState.value = state === "connected";
-}
-
-function appendSerialLine(line: string) {
-	const next = serialText ? `${serialText}\n${line}` : line;
-	serialText =
-		next.length > serialMaxChars
-			? next.slice(next.length - serialMaxChars)
-			: next;
-}
-
-function updateKalmanMetrics(data: KalmanData) {
-	const nextMetrics = { ...metrics };
-	for (const key of kalmanMetricKeys) {
-		nextMetrics[key] = data[key].toFixed(2);
+	// Out-transition: immediately lifts the departing element out of normal
+	// flow so it doesn't push or resize the incoming tab, then flies it away.
+	function flyOut(
+		node: HTMLElement,
+		params: { x: number },
+	): TransitionConfig {
+		node.style.position = "absolute";
+		node.style.top = "0";
+		node.style.left = "0";
+		node.style.right = "0";
+		node.style.pointerEvents = "none";
+		return fly(node, {
+			x: params.x,
+			opacity: 0,
+			duration: transitionOutDuration,
+			easing: linear,
+		});
 	}
-	metrics = nextMetrics;
-}
 
-function handleKalmanData(data: KalmanData) {
-	missionTime = data.t_s;
-	timeState.value = data.t_s;
-	updateKalmanMetrics(data);
-
-	const speed = Math.hypot(data.v_x, data.v_y, data.v_z);
-	const [roll, pitch, yaw] = quatToEuler(
-		data.q_w,
-		data.q_x,
-		data.q_y,
-		data.q_z,
+	let tab = $state<Tab>("space");
+	let tabDirection = $state<1 | -1>(1);
+	let wsState = $state<WsState>("connecting");
+	let commandStatus = $state("Awaiting command");
+	let serialText = $state("");
+	let missionTime = $state(0);
+	let metrics = $state<Metrics>(
+		Object.fromEntries(metricKeys.map((key) => [key, "-"])),
 	);
+	let serialViewport = $state<HTMLDivElement | null>(null);
+	let hideInterpreted = $state(false);
+	let autoScrollEnabled = $state(true);
+	let metricsExpanded = $state(false);
 
-	pushLimited(timeSeriesState.values, data.t_s);
-	pushLimited(posState.x, data.p_x);
-	pushLimited(posState.y, data.p_y);
-	pushLimited(posState.z, data.p_z);
-	pushLimited(velState.x, data.v_x);
-	pushLimited(velState.y, data.v_y);
-	pushLimited(velState.z, data.v_z);
-	pushLimited(altState.values, data.p_z);
-	pushLimited(speedState.values, speed);
-	pushLimited(attState.roll, roll);
-	pushLimited(attState.pitch, pitch);
-	pushLimited(attState.yaw, yaw);
-	pushLimited(accState.x, data.a_x);
-	pushLimited(accState.y, data.a_y);
-	pushLimited(accState.z, data.a_z);
-
-	quaternionState.w = data.q_w;
-	quaternionState.x = data.q_x;
-	quaternionState.y = data.q_y;
-	quaternionState.z = data.q_z;
-}
-
-function handleControlData(data: CtrlData) {
-	metrics = {
-		...metrics,
-		fin0: data.fin0.toFixed(1),
-		fin1: data.fin1.toFixed(1),
-		fin2: data.fin2.toFixed(1),
-		fin3: data.fin3.toFixed(1),
+	const liveState = { value: false };
+	const timeState = { value: 0 };
+	const quaternionState = { w: 1, x: 0, y: 0, z: 0 };
+	const finAnglesState = { values: [0, 0, 0, 0] };
+	const altState = { values: [] as number[] };
+	const speedState = { values: [] as number[] };
+	const posState = {
+		x: [] as number[],
+		y: [] as number[],
+		z: [] as number[],
 	};
-	finAnglesState.values = [data.fin0, data.fin1, data.fin2, data.fin3];
-	pushLimited(finState.fin0, data.fin0);
-	pushLimited(finState.fin1, data.fin1);
-	pushLimited(finState.fin2, data.fin2);
-	pushLimited(finState.fin3, data.fin3);
-}
+	const velState = {
+		x: [] as number[],
+		y: [] as number[],
+		z: [] as number[],
+	};
+	const attState = {
+		roll: [] as number[],
+		pitch: [] as number[],
+		yaw: [] as number[],
+	};
+	const timeSeriesState = { values: [] as number[] };
+	const accState = {
+		x: [] as number[],
+		y: [] as number[],
+		z: [] as number[],
+	};
+	const finState = {
+		fin0: [] as number[],
+		fin1: [] as number[],
+		fin2: [] as number[],
+		fin3: [] as number[],
+	};
+	let frozenState = $state({ value: false });
 
-function handleTelemetryMessage(msg: TelemetryMessage) {
-	if (frozenState.value) return;
+	let ws: WebSocket | null = null;
 
-	if (msg.type === "serial_raw") {
-		appendSerialLine(String(msg.line ?? ""));
-		return;
+	function setConnectionState(state: WsState) {
+		wsState = state;
+		liveState.value = state === "connected";
 	}
 
-	if (msg.type === "command_ack") {
-		commandStatus = msg.ok
-			? `Command ${msg.cmd ?? "unknown"} accepted`
-			: `Command failed: ${msg.reason ?? "unknown_error"}`;
-		return;
+	function appendSerialLine(line: string) {
+		const next = serialText ? `${serialText}\n${line}` : line;
+		serialText =
+			next.length > serialMaxChars
+				? next.slice(next.length - serialMaxChars)
+				: next;
 	}
 
-	if (msg.type === "kalman") {
-		handleKalmanData(msg.data);
-		return;
+	function updateKalmanMetrics(data: KalmanData) {
+		const nextMetrics = { ...metrics };
+		for (const key of kalmanMetricKeys) {
+			nextMetrics[key] = data[key].toFixed(2);
+		}
+		metrics = nextMetrics;
 	}
 
-	handleControlData(msg.data);
-}
+	function handleKalmanData(data: KalmanData) {
+		missionTime = data.t_s;
+		timeState.value = data.t_s;
+		updateKalmanMetrics(data);
 
-function connectWebSocket() {
-	ws?.close();
-	setConnectionState("connecting");
+		const speed = Math.hypot(data.v_x, data.v_y, data.v_z);
+		const [roll, pitch, yaw] = quatToEuler(
+			data.q_w,
+			data.q_x,
+			data.q_y,
+			data.q_z,
+		);
 
-	const socket = new WebSocket(websocketUrl);
-	ws = socket;
+		pushLimited(timeSeriesState.values, data.t_s);
+		pushLimited(posState.x, data.p_x);
+		pushLimited(posState.y, data.p_y);
+		pushLimited(posState.z, data.p_z);
+		pushLimited(velState.x, data.v_x);
+		pushLimited(velState.y, data.v_y);
+		pushLimited(velState.z, data.v_z);
+		pushLimited(altState.values, data.p_z);
+		pushLimited(speedState.values, speed);
+		pushLimited(attState.roll, roll);
+		pushLimited(attState.pitch, pitch);
+		pushLimited(attState.yaw, yaw);
+		pushLimited(accState.x, data.a_x);
+		pushLimited(accState.y, data.a_y);
+		pushLimited(accState.z, data.a_z);
 
-	socket.onopen = () => {
-		if (ws !== socket) return;
-		setConnectionState("connected");
-	};
+		quaternionState.w = data.q_w;
+		quaternionState.x = data.q_x;
+		quaternionState.y = data.q_y;
+		quaternionState.z = data.q_z;
+	}
 
-	socket.onclose = () => {
-		if (ws !== socket) return;
-		setConnectionState("disconnected");
-	};
+	function handleControlData(data: CtrlData) {
+		metrics = {
+			...metrics,
+			fin0: data.fin0.toFixed(1),
+			fin1: data.fin1.toFixed(1),
+			fin2: data.fin2.toFixed(1),
+			fin3: data.fin3.toFixed(1),
+		};
+		finAnglesState.values = [data.fin0, data.fin1, data.fin2, data.fin3];
+		pushLimited(finState.fin0, data.fin0);
+		pushLimited(finState.fin1, data.fin1);
+		pushLimited(finState.fin2, data.fin2);
+		pushLimited(finState.fin3, data.fin3);
+	}
 
-	socket.onerror = () => {
-		if (ws !== socket) return;
-		setConnectionState("error");
-	};
+	function handleTelemetryMessage(msg: TelemetryMessage) {
+		if (frozenState.value) return;
 
-	socket.onmessage = (event) => {
-		if (ws !== socket) return;
-		const msg = JSON.parse(event.data) as TelemetryMessage;
-		handleTelemetryMessage(msg);
-	};
-}
+		if (msg.type === "serial_raw") {
+			appendSerialLine(String(msg.line ?? ""));
+			return;
+		}
 
-function isTelemetryCsvLine(line: string) {
-	const t = line.trim();
-	if (!t) return false;
-	const parts = t.split(",");
-	if (parts.length !== kalmanColsLen && parts.length !== ctrlColsLen)
-		return false;
-	return parts.every((part) => Number.isFinite(Number(part)));
-}
+		if (msg.type === "command_ack") {
+			commandStatus = msg.ok
+				? `Command ${msg.cmd ?? "unknown"} accepted`
+				: `Command failed: ${msg.reason ?? "unknown_error"}`;
+			return;
+		}
 
-const displaySerial = $derived.by(() => {
-	const raw = serialText;
-	if (!hideInterpreted) return raw;
-	return raw
-		.split("\n")
-		.filter((line) => !isTelemetryCsvLine(line))
-		.join("\n");
-});
+		if (msg.type === "kalman") {
+			handleKalmanData(msg.data);
+			return;
+		}
 
-function formatMissionTime(t: number) {
-	if (!Number.isFinite(t) || t < 0) return "00:00:00";
-	const total = Math.floor(t);
-	const h = Math.floor(total / 3600);
-	const m = Math.floor((total % 3600) / 60);
-	const s = total % 60;
-	return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
-}
+		handleControlData(msg.data);
+	}
 
-function pushLimited(values: number[], value: number) {
-	values.push(value);
-	if (values.length > maxSamples) values.splice(0, values.length - maxSamples);
-}
+	function connectWebSocket() {
+		ws?.close();
+		setConnectionState("connecting");
 
-function quatToEuler(w: number, x: number, y: number, z: number) {
-	const n = Math.hypot(w, x, y, z) || 1;
-	w /= n;
-	x /= n;
-	y /= n;
-	z /= n;
-	const roll = Math.atan2(2 * (w * x + y * z), 1 - 2 * (x * x + y * y));
-	const pitch = Math.asin(Math.max(-1, Math.min(1, 2 * (w * y - z * x))));
-	const yaw = Math.atan2(2 * (w * z + x * y), 1 - 2 * (y * y + z * z));
-	return [roll, pitch, yaw];
-}
+		const socket = new WebSocket(websocketUrl);
+		ws = socket;
 
-function sendCommand(cmd: "CALIBRATE" | "RESET" | "DUMP") {
-	if (!ws || ws.readyState !== WebSocket.OPEN) return;
-	ws.send(JSON.stringify({ type: "command", cmd }));
-}
+		socket.onopen = () => {
+			if (ws !== socket) return;
+			setConnectionState("connected");
+		};
 
-function selectTab(nextTab: Tab) {
-	if (nextTab === tab) return;
-	const currentIndex = navTabs.findIndex((t) => t.id === tab);
-	const nextIndex = navTabs.findIndex((t) => t.id === nextTab);
-	tabDirection = nextIndex > currentIndex ? 1 : -1;
-	tab = nextTab;
-}
+		socket.onclose = () => {
+			if (ws !== socket) return;
+			setConnectionState("disconnected");
+		};
 
-function scrollSerialToBottom() {
-	if (tab !== "serial" || !serialViewport || !autoScrollEnabled) return;
-	tick().then(() => {
-		if (!serialViewport) return;
-		serialViewport.scrollTop = serialViewport.scrollHeight;
+		socket.onerror = () => {
+			if (ws !== socket) return;
+			setConnectionState("error");
+		};
+
+		socket.onmessage = (event) => {
+			if (ws !== socket) return;
+			const msg = JSON.parse(event.data) as TelemetryMessage;
+			handleTelemetryMessage(msg);
+		};
+	}
+
+	function isTelemetryCsvLine(line: string) {
+		const t = line.trim();
+		if (!t) return false;
+		const parts = t.split(",");
+		if (parts.length !== kalmanColsLen && parts.length !== ctrlColsLen)
+			return false;
+		return parts.every((part) => Number.isFinite(Number(part)));
+	}
+
+	const displaySerial = $derived.by(() => {
+		const raw = serialText;
+		if (!hideInterpreted) return raw;
+		return raw
+			.split("\n")
+			.filter((line) => !isTelemetryCsvLine(line))
+			.join("\n");
 	});
-}
 
-function handleSerialScroll() {
-	if (!serialViewport) return;
-	const distanceFromBottom =
-		serialViewport.scrollHeight -
-		serialViewport.scrollTop -
-		serialViewport.clientHeight;
-	autoScrollEnabled = distanceFromBottom <= 8;
-}
+	function formatMissionTime(t: number) {
+		if (!Number.isFinite(t) || t < 0) return "00:00:00";
+		const total = Math.floor(t);
+		const h = Math.floor(total / 3600);
+		const m = Math.floor((total % 3600) / 60);
+		const s = total % 60;
+		return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+	}
 
-function resumeAutoScroll() {
-	autoScrollEnabled = true;
-	scrollSerialToBottom();
-}
+	function pushLimited(values: number[], value: number) {
+		values.push(value);
+		if (values.length > maxSamples)
+			values.splice(0, values.length - maxSamples);
+	}
 
-function toggleFreeze() {
-	frozenState.value = !frozenState.value;
-	if (!frozenState.value) {
+	function quatToEuler(w: number, x: number, y: number, z: number) {
+		const n = Math.hypot(w, x, y, z) || 1;
+		w /= n;
+		x /= n;
+		y /= n;
+		z /= n;
+		const roll = Math.atan2(2 * (w * x + y * z), 1 - 2 * (x * x + y * y));
+		const pitch = Math.asin(Math.max(-1, Math.min(1, 2 * (w * y - z * x))));
+		const yaw = Math.atan2(2 * (w * z + x * y), 1 - 2 * (y * y + z * z));
+		return [roll, pitch, yaw];
+	}
+
+	function sendCommand(cmd: "CALIBRATE" | "RESET" | "DUMP" | "STOPLOG") {
+		if (!ws || ws.readyState !== WebSocket.OPEN) return;
+		ws.send(JSON.stringify({ type: "command", cmd }));
+	}
+
+	function selectTab(nextTab: Tab) {
+		if (nextTab === tab) return;
+		const currentIndex = navTabs.findIndex((t) => t.id === tab);
+		const nextIndex = navTabs.findIndex((t) => t.id === nextTab);
+		tabDirection = nextIndex > currentIndex ? 1 : -1;
+		tab = nextTab;
+	}
+
+	function scrollSerialToBottom() {
+		if (tab !== "serial" || !serialViewport || !autoScrollEnabled) return;
+		tick().then(() => {
+			if (!serialViewport) return;
+			serialViewport.scrollTop = serialViewport.scrollHeight;
+		});
+	}
+
+	function handleSerialScroll() {
+		if (!serialViewport) return;
+		const distanceFromBottom =
+			serialViewport.scrollHeight -
+			serialViewport.scrollTop -
+			serialViewport.clientHeight;
+		autoScrollEnabled = distanceFromBottom <= 8;
+	}
+
+	function resumeAutoScroll() {
+		autoScrollEnabled = true;
 		scrollSerialToBottom();
 	}
-}
 
-const dockButtonClass =
-	"inline-flex h-8 cursor-pointer items-center gap-1 rounded-[4px] border-0 bg-transparent px-3 text-sm font-medium transition-colors hover:bg-[#272727]";
+	function toggleFreeze() {
+		frozenState.value = !frozenState.value;
+		if (!frozenState.value) {
+			scrollSerialToBottom();
+		}
+	}
 
-onMount(() => {
-	connectWebSocket();
-});
+	const dockButtonClass =
+		"inline-flex h-8 cursor-pointer items-center gap-1 rounded-[4px] border-0 bg-transparent px-3 text-sm font-medium transition-colors hover:bg-[#272727]";
 
-onDestroy(() => {
-	ws?.close();
-});
+	onMount(() => {
+		connectWebSocket();
+	});
 
-$effect(() => {
-	displaySerial;
-	tab;
-	frozenState.value;
-	autoScrollEnabled;
-	if (frozenState.value) return;
-	scrollSerialToBottom();
-});
+	onDestroy(() => {
+		ws?.close();
+	});
+
+	$effect(() => {
+		displaySerial;
+		tab;
+		frozenState.value;
+		autoScrollEnabled;
+		if (frozenState.value) return;
+		scrollSerialToBottom();
+	});
 </script>
 
 {#snippet tabContent(t: Tab)}
@@ -588,9 +592,9 @@ $effect(() => {
 	</footer>
 
 	<div
-		class="fixed bottom-14 left-1/2 z-20 flex w-[calc(100%-2rem)] max-w-[560px] -translate-x-1/2 items-center justify-between rounded-lg border border-[#474747] bg-[#111113] px-2 py-2 text-[#bbbac1] shadow-[0_4px_16px_rgba(0,0,0,0.2)] sm:w-auto sm:min-w-[460px]"
+		class="fixed bottom-14 left-1/2 z-20 flex w-[calc(100%-2rem)] max-w-[900px] -translate-x-1/2 items-center justify-between rounded-lg border border-[#474747] bg-[#111113] px-2 py-2 text-[#bbbac1] shadow-[0_4px_16px_rgba(0,0,0,0.2)] sm:w-auto sm:min-w-[460px]"
 	>
-		<div class="flex items-center gap-2">
+		<div class="flex items-center gap-2 *:whitespace-nowrap">
 			<button
 				type="button"
 				class={`${dockButtonClass} text-[#bbbac1]`}
@@ -608,6 +612,11 @@ $effect(() => {
 				type="button"
 				class={`${dockButtonClass} text-[#bbbac1]`}
 				onclick={() => sendCommand("DUMP")}>Dump</button
+			>
+			<button
+				type="button"
+				class={`${dockButtonClass} text-[#bbbac1]`}
+				onclick={() => sendCommand("STOPLOG")}>Stop log</button
 			>
 			<button
 				type="button"
