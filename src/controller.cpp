@@ -2,6 +2,9 @@
 
 #include "bluetooth.h"
 
+static quat g_q_prev = {1, 0, 0, 0};
+static b32 g_q_prev_valid = false;
+
 quat attitude_error(const quat *q_desired, const quat *q_current) {
   quat q_conj, q_err;
 
@@ -34,9 +37,6 @@ f32 pid_update(pid *p, f32 error, f32 rate, f32 dt) {
 
 void controller_update(controller_t *c, f32 dt, quat *q_current,
                        matrix *state) {
-  static quat q_prev = {1, 0, 0, 0};
-  static b32 q_prev_valid = false;
-
   // TODO: Actually use the state to scale with velocity for example
   (void)state;
 
@@ -44,14 +44,14 @@ void controller_update(controller_t *c, f32 dt, quat *q_current,
   quat q_curr = *q_current;
   quat_normalise(&q_curr);
 
-  if (!q_prev_valid) {
-    q_prev = q_curr;
-    q_prev_valid = true;
+  if (!g_q_prev_valid) {
+    g_q_prev = q_curr;
+    g_q_prev_valid = true;
   }
 
   // Keep quaternion sign continuous
-  f32 dot = q_curr.w * q_prev.w + q_curr.x * q_prev.x + q_curr.y * q_prev.y +
-            q_curr.z * q_prev.z;
+  f32 dot = q_curr.w * g_q_prev.w + q_curr.x * g_q_prev.x + q_curr.y * g_q_prev.y +
+            q_curr.z * g_q_prev.z;
   if (dot < 0.0f) {
     q_curr.w = -q_curr.w;
     q_curr.x = -q_curr.x;
@@ -69,7 +69,7 @@ void controller_update(controller_t *c, f32 dt, quat *q_current,
 
   // Angular rates from quaternion delta, derivative term
   quat dq, q_prev_conj;
-  quat_conjugate(&q_prev_conj, &q_prev);
+  quat_conjugate(&q_prev_conj, &g_q_prev);
   quat_mul(&dq, &q_curr, &q_prev_conj);
   quat_normalise(&dq);
 
@@ -84,7 +84,7 @@ void controller_update(controller_t *c, f32 dt, quat *q_current,
   f32 wy_b = 2.0f * dq.y / dt;
   f32 wz_b = 2.0f * dq.z / dt;
 
-  q_prev = q_curr;
+  g_q_prev = q_curr;
 
   // PID
   f32 u_roll = pid_update(&c->pid_roll, err_roll, wx_b, dt);
@@ -127,6 +127,23 @@ void controller_update(controller_t *c, f32 dt, quat *q_current,
   for (int i = 0; i < 4; i++) {
     c->fin_angle_deg[i] = delta[i] * MAX_FIN_DEFLECTION_DEG;
   }
+}
+
+void controller_reset(controller_t *c) {
+  if (!c) {
+    return;
+  }
+
+  c->pid_roll.integral = 0.0f;
+  c->pid_pitch.integral = 0.0f;
+  c->pid_yaw.integral = 0.0f;
+
+  for (int i = 0; i < 4; i++) {
+    c->fin_angle_deg[i] = 0.0f;
+  }
+
+  g_q_prev = (quat){1.0f, 0.0f, 0.0f, 0.0f};
+  g_q_prev_valid = false;
 }
 
 void controller_debug_print_csv_row(u32 t_ms, const controller_t *c) {

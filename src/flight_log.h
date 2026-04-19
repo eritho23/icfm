@@ -2,7 +2,10 @@
 #define ICFM_FLIGHT_LOG_H
 
 #include <Arduino.h>
+#include <LittleFS.h>
+#include <stdarg.h>
 
+#include "bluetooth.h"
 #include "../include/base.h"
 
 void flog_init(void);

@@ -2,6 +2,12 @@
 #define ICFM_BLUETOOTH_H
 
 #include <Arduino.h>
+#include <BLECharacteristic.h>
+#include <BLEDevice.h>
+#include <BLEServer.h>
+#include <BLEUtils.h>
+#include <string.h>
+#include <stdarg.h>
 
 #include "../include/base.h"
 

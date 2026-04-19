@@ -53,9 +53,9 @@ b32 gps_read_local_enu(gps_measurement_t *out) {
   
   const u32 i_tow_ms = (u32)gps.getTimeOfWeek();
   if (i_tow_ms == g_last_i_tow_ms) return true;
-  g_last_i_tow_ms  = i_tow_ms;
-  out->i_tow_ms    = i_tow_ms;
-  out->fresh       = true;
+  g_last_i_tow_ms = i_tow_ms;
+  out->i_tow_ms = i_tow_ms;
+  out->fresh = true;
 
   if (gps.getFixType() < 3) return true;
 
@@ -79,4 +79,12 @@ b32 gps_read_local_enu(gps_measurement_t *out) {
   out->valid = true;
 
   return true;
+}
+
+void gps_reset_origin(void) {
+  g_has_origin = false;
+  g_lat0_rad = 0.0;
+  g_lon0_rad = 0.0;
+  g_alt0_m = 0.0;
+  g_last_i_tow_ms = 0;
 }

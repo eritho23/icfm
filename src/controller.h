@@ -25,6 +25,7 @@ typedef struct {
 
 quat attitude_error(const quat *q_desired, const quat *q_current);
 void controller_update(controller_t *c, f32 dt, quat *q_current, matrix *state);
+void controller_reset(controller_t *c);
 void controller_debug_print_csv_row(u32 t_ms, const controller_t *c);
 
 #endif

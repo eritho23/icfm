@@ -21,5 +21,6 @@ typedef struct {
 
 void gps_setup();
 b32 gps_read_local_enu(gps_measurement_t *out);
+void gps_reset_origin(void);
 
 #endif

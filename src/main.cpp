@@ -105,6 +105,9 @@ static void handle_cmd(const char *cmd) {
   } else if (strcmp(cmd, "RESET") == 0) {
     g_last_kf_state = NULL;
     g_last_kf_update_us = 0;
+    dt = 0.0f;
+    controller_reset(&controller);
+    gps_reset_origin();
     enter_state(IDLE);
 
   } else if (strcmp(cmd, "DUMP") == 0) {
@@ -170,6 +173,7 @@ void setup() {
   // NOTE: This is what we want for a first launch
   controller.q_desired = (quat){1.0f, 0.0f, 0.0f, 0.0f};
   quat_normalise(&controller.q_desired);
+  controller_reset(&controller);
 
   set_fins_neutral();
   g_state = IDLE;
@@ -259,7 +263,7 @@ void loop() {
       dt = (f32)(now_us - g_last_kf_update_us) * 1e-6f;
       g_last_kf_update_us = now_us;
       if (dt <= 0.0f || dt > 0.1f || dt <= 1e-6f) {
-        ble_send("ERROR: Unusual dt; falling back to imu_dt_default");
+        ble_send("Unusual dt, falling back to imu_dt_default");
         dt = imu_dt_default;
       }
 

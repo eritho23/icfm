@@ -1,8 +1,4 @@
 #include "flight_log.h"
-#include "bluetooth.h"
-
-#include <LittleFS.h>
-#include <stdarg.h>
 
 #define LOG_PATH "/flight.csv"
 #define FLUSH_EVERY_ROWS 10

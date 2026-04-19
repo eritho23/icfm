@@ -1,20 +1,13 @@
 #include "bluetooth.h"
 
-#include <BLECharacteristic.h>
-#include <BLEDevice.h>
-#include <BLEServer.h>
-#include <BLEUtils.h>
-#include <string.h>
-#include <stdarg.h>
-
-static portMUX_TYPE g_mux        = portMUX_INITIALIZER_UNLOCKED;
-static bool g_connected  = false;
-static bool g_cmd_ready  = false;
+static portMUX_TYPE g_mux = portMUX_INITIALIZER_UNLOCKED;
+static bool g_connected = false;
+static bool g_cmd_ready = false;
 static char g_cmd_buf[BLE_CMD_BUF_LEN];
 
-static BLEServer         *g_server    = NULL;
-static BLECharacteristic *g_cmd_char  = NULL;
-static BLECharacteristic *g_log_char  = NULL;
+static BLEServer *g_server = NULL;
+static BLECharacteristic *g_cmd_char = NULL;
+static BLECharacteristic *g_log_char = NULL;
 
 class ServerCB : public BLEServerCallbacks {
   void onConnect(BLEServer *) override {
@@ -55,7 +48,7 @@ class CmdCB : public BLECharacteristicCallbacks {
 
 // Static instances — no heap allocation
 static ServerCB g_server_cb;
-static CmdCB    g_cmd_cb;
+static CmdCB g_cmd_cb;
 
 void ble_init(void) {
   BLEDevice::init("Rocket-FC");
