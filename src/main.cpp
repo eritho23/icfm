@@ -370,7 +370,7 @@ void loop() {
             const matrix *s = kalman_filter_update(
                 dt, imu_measurement.wx, imu_measurement.wy, imu_measurement.wz);
             const quat *q = kalman_filter_get_quat();
-            controller_update(&controller, dt, (quat *)q, (matrix *)s);
+            controller_update(&controller, dt, (quat *)q, (matrix *)s, imu_measurement.wx, imu_measurement.wy, imu_measurement.wz);
             g_last_kf_state = s;
 
             servos_write(controller.fin_angle_deg);
