@@ -180,7 +180,7 @@ void setup() {
     // TODO: Tune gains according to simulations in simulink
     controller.pid_roll = (pid){.kp = 5.0f, .ki = 0.0f, .kd = 0.4f};
     controller.pid_pitch = (pid){.kp = 5.0f, .ki = 0.0f, .kd = 0.4f};
-    controller.pid_yaw = (pid){.kp = 3.0f, .ki = 0.0f, .kd = 0.2f};
+    controller.pid_yaw = (pid){.kp = 5.0f, .ki = 0.0f, .kd = 0.4f};
     controller.pid_roll.integral_limit = 1.0f;
     controller.pid_pitch.integral_limit = 1.0f;
     controller.pid_yaw.integral_limit = 1.0f;
