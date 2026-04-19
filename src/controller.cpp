@@ -6,8 +6,8 @@ static b32 g_q_prev_valid = false;
 quat attitude_error(const quat *q_desired, const quat *q_current) {
     quat q_conj, q_err;
 
-    quat_conjugate(&q_conj, q_current);
-    quat_mul(&q_err, q_desired, &q_conj);
+	quat_conjugate(&q_conj, q_desired);
+	quat_mul(&q_err, &q_conj, q_current);
     quat_normalise(&q_err);
 
     // Ensure shortest path rotation
