@@ -20,7 +20,8 @@ static f32 g_acceleration = -9.82;
 
 #define LIFTOFF_ACCELERATION_TRIGGER 4
 
-#define CONTROL_LOG_PERIOD_MS 100
+#define LOG_PERIOD_MS 100
+#define FLIGHT_LOG_TIME_MS (8UL * 60UL * 1000UL) // 8 minutes
 
 static imu_measurement_t imu_measurement;
 static gps_measurement_t gps_measurement;
@@ -234,6 +235,15 @@ void loop() {
     const u32 now_us = micros();
     const u32 now_ms = millis();
 
+    if (millis() - g_state_enter_ms >= FLIGHT_LOG_TIME_MS) {
+      static b32 log_closed = false;
+      if (!log_closed) {
+          flog_close();
+          log_closed = true;
+      }
+      break;
+    }
+
     if (gps_read_local_enu(&gps_measurement) && gps_measurement.fresh &&
         gps_measurement.valid) {
       kalman_filter_set_gps_enu(gps_measurement.x_east_m, gps_measurement.y_north_m,
@@ -264,7 +274,7 @@ void loop() {
       servos_write(controller.fin_angle_deg);
     }
 
-    if (now_ms - last_log_ms >= CONTROL_LOG_PERIOD_MS) {
+    if (now_ms - last_log_ms >= LOG_PERIOD_MS) {
       last_log_ms = now_ms;
 
       if (g_last_kf_state) {
