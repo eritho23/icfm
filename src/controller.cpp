@@ -18,6 +18,11 @@ void controller_update(controller_t *c, f32 dt, quat *q_current,
     // TODO: Actually use the state to scale with velocity for example.
     (void)state;
 
+	// Low-pass filter gyro rates (~20 Hz cutoff at 104 Hz loop rate)
+    c->wx_f += GYRO_LPF_ALPHA * (wx - c->wx_f);
+    c->wy_f += GYRO_LPF_ALPHA * (wy - c->wy_f);
+    c->wz_f += GYRO_LPF_ALPHA * (wz - c->wz_f);
+
     // Normalize current attitude.
     quat q_curr = *q_current;
     quat_normalise(&q_curr);
@@ -38,14 +43,14 @@ void controller_update(controller_t *c, f32 dt, quat *q_current,
     }
 
     // Small-angle approximation: error in radians.
-    f32 err_roll  = 2.0f * q_err.x;
+    f32 err_roll = 2.0f * q_err.x;
     f32 err_pitch = 2.0f * q_err.y;
-    f32 err_yaw   = 2.0f * q_err.z;
+    f32 err_yaw = 2.0f * q_err.z;
 
     // wx/wy/wz are body-frame gyro rates
-    f32 u_roll  = pid_update(&c->pid_roll,  err_roll,  wx, dt);
-    f32 u_pitch = pid_update(&c->pid_pitch, err_pitch, wy, dt);
-    f32 u_yaw   = pid_update(&c->pid_yaw,   err_yaw,   wz, dt);
+    f32 u_roll = pid_update(&c->pid_roll, err_roll, c->wx_f, dt);
+    f32 u_pitch = pid_update(&c->pid_pitch, err_pitch, c->wy_f, dt);
+    f32 u_yaw = pid_update(&c->pid_yaw, err_yaw, c->wz_f, dt);
 
     // Mixer
     // Pitch pair: fins 0 and 2 (opposite)
@@ -80,6 +85,10 @@ void controller_reset(controller_t *c) {
     c->pid_roll.integral = 0.0f;
     c->pid_pitch.integral = 0.0f;
     c->pid_yaw.integral = 0.0f;
+
+	c->wx_f = 0.0f;
+    c->wy_f = 0.0f;
+    c->wz_f = 0.0f;
 
     for (int i = 0; i < 4; i++) {
         c->fin_angle_deg[i] = 0.0f;

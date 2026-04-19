@@ -7,6 +7,7 @@
 #include "./quaternion_utils.h"
 
 #define MAX_FIN_DEFLECTION_DEG 30.0f
+#define GYRO_LPF_ALPHA 0.546f
 
 typedef struct {
     f32 kp;
@@ -22,6 +23,7 @@ typedef struct {
     pid pid_yaw;
     quat q_desired; // desired attitude (world frame, set by guidance)
     f32 fin_angle_deg[4];
+	f32 wx_f, wy_f, wz_f; // low-pass filtered gyro rates (~20 Hz cutoff at 104 Hz)
 } controller_t;
 
 quat attitude_error(const quat *q_desired, const quat *q_current);
