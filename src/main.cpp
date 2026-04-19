@@ -23,6 +23,8 @@ static f32 g_acceleration = -9.82;
 #define LOG_PERIOD_MS 100
 #define FLIGHT_LOG_TIME_MS (8UL * 60UL * 1000UL) // 8 minutes
 
+static b32 g_log_closed = false;
+
 static imu_measurement_t imu_measurement;
 static gps_measurement_t gps_measurement;
 
@@ -81,6 +83,7 @@ static void enter_state(flight_state_t next) {
 
   if (next == LIFTOFF) {
     flog_init();
+    g_log_closed = false;
   }
 
   // When leaving CONTROL
@@ -217,12 +220,38 @@ void loop() {
 
     break;
 
-  case READY:
-    if (get_imu_data(&imu_measurement)) {
-      if (imu_measurement.ax > g_acceleration + LIFTOFF_ACCELERATION_TRIGGER) enter_state(LIFTOFF);
-    }
+    case READY: {
+        const u32 now_ms = millis();
 
-    break;
+        if (get_imu_data(&imu_measurement)) {
+            if (imu_measurement.ax > g_acceleration + LIFTOFF_ACCELERATION_TRIGGER) {
+                enter_state(LIFTOFF);
+                break;
+            }
+
+            // Periodic sensor health report over BLE
+            static u32 last_ready_log_ms = 0;
+            if (now_ms - last_ready_log_ms >= 500) {
+                last_ready_log_ms = now_ms;
+
+                ble_sendf("IMU,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f",
+                          imu_measurement.ax, imu_measurement.ay, imu_measurement.az,
+                          imu_measurement.wx, imu_measurement.wy, imu_measurement.wz);
+
+                gps_measurement_t gps;
+                if (gps_read_local_enu(&gps) && gps.fresh) {
+                    if (gps.valid) {
+                        ble_sendf("GPS,%.2f,%.2f,%.2f",
+                                  gps.x_east_m, gps.y_north_m, gps.z_up_m);
+                    } else {
+                        ble_send("GPS,NO_FIX");
+                    }
+                }
+            }
+        }
+
+        break;
+    }
   case LIFTOFF:
     // NOTE: We do not want to attempt to control the rocket during this high acceleration phase.
     //       Checking for velocity or altitude is unreliable. Therefore we hardcode a timer.
@@ -240,10 +269,9 @@ void loop() {
     const u32 now_ms = millis();
 
     if (millis() - g_state_enter_ms >= FLIGHT_LOG_TIME_MS) {
-      static b32 log_closed = false;
-      if (!log_closed) {
+      if (!g_log_closed) {
           flog_close();
-          log_closed = true;
+          g_log_closed = true;
       }
       break;
     }
