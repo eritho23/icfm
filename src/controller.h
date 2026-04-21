@@ -7,7 +7,7 @@
 #include "./quaternion_utils.h"
 
 #define MAX_FIN_DEFLECTION_DEG 30.0f
-#define GYRO_LPF_ALPHA 0.546f
+#define GYRO_LPF_ALPHA 0.7f
 
 typedef struct {
     f32 kp;
