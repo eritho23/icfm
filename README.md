@@ -15,7 +15,8 @@ Software
 Hardware
 - esp32-c6-devkitc-1
 - 4x corona cs238mg servos
-- ...
+- ism330dhcx IMU
+- ublox neo-m9n GPS
 
 ## Development
 
